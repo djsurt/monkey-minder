@@ -1,0 +1,61 @@
+name: monkey-minder
+
+volumes:
+  src:
+    driver: local
+    driver_opts:
+      o: bind
+      type: none
+      device: ./
+
+services:
+  server:
+    profiles: [prod]
+    build:
+      context: .
+      additional_contexts:
+        dev: service:dev
+      # TODO(amgg): this should run the protobuf build, and specifically do it in a way that doesn't write to host disk (i.e. should switch to copying instead of mounting)
+      dockerfile_inline: |
+        FROM dev AS builder
+        WORKDIR /build-in/
+        RUN --mount=type=bind,target=. go build -o /build-out/server ./server/
+        FROM scratch
+        COPY --from=builder /build-out/server /bin/server
+        CMD ["/bin/server"]
+  # TODO(amgg): should really switch to a less janky solution for rebuild watching
+  dev:
+    profiles: [dev-all]
+    build:
+      dockerfile: Dockerfile
+    volumes:
+      - src:/src
+    working_dir: /src
+    command: tail -f /dev/null
+    develop:
+      watch:
+        - path: ./
+          action: sync+exec
+          exec:
+            command: make protos
+          include:
+            - "**/*.proto"
+          target: /dev/null
+  dev-report:
+    profiles: [dev-all]
+    build:
+      dockerfile: ./report/Dockerfile
+    volumes:
+      - src:/src
+    working_dir: /src/report
+    command: tail -f /dev/null
+    develop:
+      watch:
+        - path: ./report/
+          action: sync+exec
+          exec:
+            command: make report.pdf
+          include:
+            - "*.tex"
+            - "*.mmd"
+          target: /dev/null

@@ -1,11 +1,11 @@
-PROTOBUF_FILES = $(shell find ./proto/ -name '*.proto')
+PROTOBUF_FILES = $(shell find ./ -name '*.proto')
 PROTOBUF_FILES_COMPILED = $(patsubst %.proto,%.pb.go,$(PROTOBUF_FILES))
 PROTOBUF_FILES_COMPILED += $(patsubst %.proto,%_grpc.pb.go,$(PROTOBUF_FILES))
 
 .PHONY: clean protos
 
 clean:
-	-rm $(PROTOBUF_FILES_COMPILED)
+	-find ./ -name '*.pb.go' -delete
 
 protos: $(PROTOBUF_FILES_COMPILED)
 

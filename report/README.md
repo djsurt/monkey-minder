@@ -1,5 +1,12 @@
 # building report
+## build once
 ```bash
-docker build . --tag cs249-report-builder
-docker run --rm -v "$($PWD):/src" -w '/src' cs249-report-builder make report.pdf
+docker compose up dev-report --detach
+docker compose run dev-report make report.pdf
 ```
+
+## watch & auto-rebuild
+```bash
+docker compose up dev-report --watch
+```
+
