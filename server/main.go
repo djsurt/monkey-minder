@@ -1,5 +1,9 @@
 package main
 
+import (
+	log "github.com/djsurt/the-new-zookeepers/server/log"
+)
+
 type NodeId uint64
 type term uint64
 
@@ -9,7 +13,7 @@ type Node[LE any, LS any, LQ any, LV any] struct {
 	// candidate voted for this term
 	// TODO(amgg): probably give this a better type than just a ptr to make it nullable
 	votedFor *NodeId
-	log      Log[LE, LS, LQ, LV]
+	log      log.Log[LE, LS, LQ, LV]
 	// leader-specific data if this node is a leader, or nil otherwise
 	leaderData *LeaderData
 }
