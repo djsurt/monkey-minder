@@ -2,55 +2,42 @@ package log
 
 import "slices"
 
-type LogSquasher[E any, S any] func(snapshot *S, entry E)
-
-type LogSpec[E any, S any] struct {
-	squasher       LogSquasher[E, S]
-	snapshotCtor   func() S
-	snapshotCloner func(*S) S
+type Snapshot[Entry any, Self any] interface {
+	ApplyEntry(Entry)
+	Clone() Self
 }
 
-type Log[E any, S any] struct {
-	spec           *LogSpec[E, S]
+type Log[E any, S Snapshot[E, S]] struct {
 	headSnapshot   S
 	tailSnapshot   S
 	realFirstIndex uint64
 	entries        []E
 }
 
-func NewLogSpec[E any, S any](
-	snapshotCtor func() S,
-	snapshotCloner func(*S) S,
-	squasher LogSquasher[E, S],
-) LogSpec[E, S] {
-	return LogSpec[E, S]{
-		squasher:       squasher,
-		snapshotCtor:   snapshotCtor,
-		snapshotCloner: snapshotCloner,
-	}
-}
-
-func (spec *LogSpec[E, S]) NewEmptyLog() Log[E, S] {
+func NewLog[E any, S Snapshot[E, S]](
+	initialSnapshot S,
+	indexOffset uint64,
+) Log[E, S] {
 	return Log[E, S]{
-		spec:           spec,
-		headSnapshot:   spec.snapshotCtor(),
-		tailSnapshot:   spec.snapshotCtor(),
-		realFirstIndex: 0,
+		headSnapshot:   initialSnapshot.Clone(),
+		tailSnapshot:   initialSnapshot,
+		realFirstIndex: indexOffset,
 		entries:        []E{},
 	}
 }
 
+// squash the log's first n items into its snapshot
 func (log *Log[E, S]) SquashFirstN(n uint64) {
 	for i := range n {
-		log.spec.squasher(&log.headSnapshot, log.entries[i])
+		log.headSnapshot.ApplyEntry(log.entries[i])
 	}
 	log.entries = log.entries[n:]
 	log.realFirstIndex += n
 }
 
-type LogEntryPredicate[Entry any] func(entry Entry) bool
-
-func (log *Log[E, S]) SquashUntil(predicate LogEntryPredicate[E]) {
+// squash entries at the beginning of the log,
+// up to (but not including) the first entry where the provided predicate returns true.
+func (log *Log[Entry, _]) SquashUntil(predicate func(Entry) bool) {
 	firstNonSquashed := slices.IndexFunc(log.entries, predicate)
 	// none found
 	if firstNonSquashed == -1 {
@@ -64,12 +51,15 @@ func (log *Log[E, S]) SquashUntil(predicate LogEntryPredicate[E]) {
 	log.SquashFirstN(uint64(firstNonSquashed - 1))
 }
 
+// append a new entry to the log
 func (log *Log[E, S]) Append(entry E) {
-	log.spec.squasher(&log.tailSnapshot, entry)
+	log.tailSnapshot.ApplyEntry(entry)
 	log.entries = append(log.entries, entry)
 }
 
-func (log *Log[E, S]) Last() *S {
+// a snapshot at the current state of the log.
+// this operation is trivial and will not have any significant performance impact.
+func (log *Log[E, S]) Latest() *S {
 	return &log.tailSnapshot
 }
 
