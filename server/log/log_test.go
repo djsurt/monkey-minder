@@ -1,6 +1,7 @@
 package log
 
 import (
+	"maps"
 	"testing"
 )
 
@@ -8,52 +9,47 @@ type simpleEntry struct {
 	k string
 	v int
 }
-type simpleSnapshot map[string]int
+type simpleSnapshot = map[string]int
 
-func simpleSquasher(oldSnapshot *simpleSnapshot, entries []simpleEntry) simpleSnapshot {
-	var squashed simpleSnapshot
-	if oldSnapshot == nil {
-		squashed = simpleSnapshot{}
-	} else {
-		squashed = *oldSnapshot
-	}
-	for _, entry := range entries {
-		squashed[entry.k] = entry.v
-	}
-	return squashed
+func newSimpleSnapshot() simpleSnapshot {
+	return make(simpleSnapshot)
 }
 
-func simpleQuerier(snapshot *simpleSnapshot, entries []simpleEntry, query string) int {
-	for i := len(entries) - 1; i >= 0; i-- {
-		if entries[i].k == query {
-			return entries[i].v
-		}
+func squasher(snapshot *simpleSnapshot, entry simpleEntry) {
+	(*snapshot)[entry.k] = entry.v
+}
+
+var simpleLog = NewLogSpec(
+	newSimpleSnapshot,
+	func(s *simpleSnapshot) simpleSnapshot { return maps.Clone(*s) },
+	squasher,
+)
+
+func assertEq[V comparable](t *testing.T, val V, expected V) {
+	t.Helper()
+	if val != expected {
+		t.Errorf("expected %#v to equal %#v but they did not.", val, expected)
 	}
-	if snapshot != nil {
-		val, ok := (*snapshot)[query]
-		if ok {
-			return val
-		}
-	}
-	return -1
 }
 
 func TestLog(t *testing.T) {
-	log := NewEmptyLog(simpleSquasher, simpleQuerier)
+	log := simpleLog.NewEmptyLog()
+
 	log.Append(simpleEntry{"a", 1})
-	if log.Query("a") != 1 {
-		t.Error()
-	}
+	assertEq(t, (*log.Last())["a"], 1)
+	assertEq(t, log.LenLogical(), 1)
+
 	log.Append(simpleEntry{"a", 2})
-	if log.Query("a") != 2 {
-		t.Error()
-	}
+	assertEq(t, (*log.Last())["a"], 2)
+	assertEq(t, log.LenLogical(), 2)
+
 	log.Append(simpleEntry{"b", 3})
-	if log.Query("a") != 2 {
-		t.Error()
-	}
+	assertEq(t, (*log.Last())["a"], 2)
+	assertEq(t, (*log.Last())["b"], 3)
+	assertEq(t, log.LenLogical(), 3)
+
 	log.SquashFirstN(1)
-	if log.Query("a") != 2 {
-		t.Error()
-	}
+	assertEq(t, (*log.Last())["a"], 2)
+	assertEq(t, log.LenLogical(), 3)
+	assertEq(t, log.LenActual(), 2)
 }
