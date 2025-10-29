@@ -1,0 +1,15 @@
+---
+config:
+    # layout: elk
+---
+classDiagram
+    note "TODO finish me"
+    class Snapshot~E~ {
+        <<Interface>>
+        +Clone() Self
+        +ApplyEntry(E entry)
+    }
+    class Log["Log&lt;E, S: Snapshot&lt;E&gt;&gt;"] {
+    }
+    Log *-- Snapshot
+

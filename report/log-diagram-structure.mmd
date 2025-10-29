@@ -1,0 +1,18 @@
+---
+config:
+    layout: elk
+---
+flowchart LR
+    head(("Head<br>Snapshot"))
+    subgraph Entries
+        n1["n"]
+        n2["n+1"]
+        m1["m-1"]
+        m2["m"]
+    end
+    tail(("Tail<br>Snapshot"))
+    head --- n1
+    m2 --- tail
+    n1 --> n2
+    m1 --> m2
+    n2 -- " ... " --> m1
