@@ -34,15 +34,27 @@ func NewElectionServer(port int) *ElectionServer {
 }
 
 // Run the state machine
-func (s *ElectionServer) doLoop(context context.Context) {
+func (s *ElectionServer) doLoop(ctx context.Context) {
 	switch s.state {
 	case FOLLOWER:
-		doFollower()
+		doFollower(ctx)
 	case CANDIDATE:
-		doCandidate()
+		doCandidate(ctx)
 	case LEADER:
-		doLeader()
+		doLeader(ctx)
 	}
+}
+
+func doLeader(ctx context.Context) {
+	panic("unimplemented")
+}
+
+func doCandidate(ctx context.Context) {
+	panic("unimplemented")
+}
+
+func doFollower(ctx context.Context) {
+	panic("unimplemented")
 }
 
 // Handle a RequestVote call from a peer in the candidate state.
