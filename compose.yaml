@@ -41,6 +41,8 @@ services:
           include:
             - "**/*.proto"
           target: /dev/null
+        - path: ./Dockerfile
+          action: rebuild
   dev-report:
     profiles: [dev-all]
     build:
@@ -59,3 +61,7 @@ services:
             - "*.tex"
             - "*.mmd"
           target: /dev/null
+        - path: ./report/
+          action: rebuild
+          include:
+            - "Dockerfile"
