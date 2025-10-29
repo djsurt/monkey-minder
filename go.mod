@@ -1,4 +1,4 @@
-module github.com/djsurt/the-new-zookeepers
+module github.com/djsurt/monkey-minder
 
 go 1.25.3
 

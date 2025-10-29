@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	raft "github.com/djsurt/the-new-zookeepers/server/internal"
-	raftpb "github.com/djsurt/the-new-zookeepers/server/proto/raft"
+	raft "github.com/djsurt/monkey-minder/server/internal"
+	raftpb "github.com/djsurt/monkey-minder/server/proto/raft"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -44,7 +44,7 @@ func main() {
 	serverErr := make(chan error)
 	go func(errChan chan<- error) {
 		fmt.Printf("Election server listening on port %d...\n", port)
-		err := electionServer.Serve()
+		_, err := electionServer.Serve()
 		if err != nil {
 			errChan <- err
 		}
