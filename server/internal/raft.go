@@ -6,7 +6,7 @@ import (
 	"log"
 	"net"
 
-	raftpb "github.com/djsurt/the-new-zookeepers/server/proto/raft"
+	raftpb "github.com/djsurt/monkey-minder/server/proto/raft"
 	"google.golang.org/grpc"
 )
 
@@ -30,6 +30,18 @@ func NewElectionServer(port int) *ElectionServer {
 	return &ElectionServer{
 		Port:  port,
 		state: FOLLOWER,
+	}
+}
+
+// Run the state machine
+func (s *ElectionServer) doLoop(context context.Context) {
+	switch s.state {
+	case FOLLOWER:
+		doFollower()
+	case CANDIDATE:
+		doCandidate()
+	case LEADER:
+		doLeader()
 	}
 }
 
@@ -62,11 +74,11 @@ func (s *ElectionServer) AppendEntries(
 // Serve the ElectionServer RPC interface. Returns an error if any of the
 // setup steps fail, or if the grpcServer returns an error due to a
 // listener.accept() failure.
-func (s *ElectionServer) Serve() error {
+func (s *ElectionServer) Serve() (cancel context.CancelFunc, err error) {
 	// Try to create the TCP socket.
 	listener, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", s.Port))
 	if err != nil {
-		return fmt.Errorf("Error creating TCP socket: %v", err)
+		return nil, fmt.Errorf("Error creating TCP socket: %v", err)
 	}
 
 	s.grpcServer = grpc.NewServer()
@@ -75,7 +87,11 @@ func (s *ElectionServer) Serve() error {
 	// Begin serving ElectionServer RPCs
 	err = s.grpcServer.Serve(listener)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+
+	// start stateMachineLoop
+	ctx, cancelFunc := context.WithCancel(context.Background())
+	go s.doLoop(ctx)
+	return cancelFunc, nil
 }
