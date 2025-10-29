@@ -1,7 +1,7 @@
 syntax = "proto3";
 package raft;
 
-option go_package = "github.com/djsurt/the-new-zookeepers/server/proto/raft";
+option go_package = "github.com/djsurt/monkey-minder/server/proto/raftpb";
 
 message VoteRequest {
   int32 term = 1;
@@ -15,6 +15,25 @@ message Vote {
   bool voteGranted = 2;
 }
 
+message AppendEntriesRequest {
+  int32 term = 1;
+  int32 leaderId = 2;
+  int32 prevLogIndex = 3;
+  int32 prevLogTerm = 4;
+  // TODO: Implement me properly.
+  message Entry {
+    string message = 1;
+  }
+  repeated Entry entries = 5;
+  int32 leaderCommit = 6;
+}
+
+message AppendEntriesResult {
+  int32 term = 1;
+  bool success = 2;
+}
+
 service Election {
   rpc RequestVote (VoteRequest) returns (Vote);
+  rpc AppendEntries (AppendEntriesRequest) returns (AppendEntriesResult);
 }
