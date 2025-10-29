@@ -20,16 +20,26 @@ const (
 
 type ElectionServer struct {
 	raftpb.UnimplementedElectionServer
-	Port       int
-	state      NodeState
-	grpcServer *grpc.Server
-	listener   net.Conn
+	Port           int
+	state          NodeState
+	grpcServer     *grpc.Server
+	listener       net.Conn
+	term           uint
+	logIndex       uint
+	aeRequestChan  chan *raftpb.AppendEntriesRequest
+	aeResponseChan chan *raftpb.AppendEntriesResult
+	rvRequestChan  chan *raftpb.VoteRequest
+	rvResponseChan chan *raftpb.Vote
 }
 
 func NewElectionServer(port int) *ElectionServer {
 	return &ElectionServer{
-		Port:  port,
-		state: FOLLOWER,
+		Port:           port,
+		state:          FOLLOWER,
+		aeRequestChan:  make(chan *raftpb.AppendEntriesRequest),
+		aeResponseChan: make(chan *raftpb.AppendEntriesResult),
+		rvRequestChan:  make(chan *raftpb.VoteRequest),
+		rvResponseChan: make(chan *raftpb.Vote),
 	}
 }
 
@@ -37,24 +47,33 @@ func NewElectionServer(port int) *ElectionServer {
 func (s *ElectionServer) doLoop(ctx context.Context) {
 	switch s.state {
 	case FOLLOWER:
-		doFollower(ctx)
+		s.doFollower(ctx)
 	case CANDIDATE:
-		doCandidate(ctx)
+		s.doCandidate(ctx)
 	case LEADER:
-		doLeader(ctx)
+		s.doLeader(ctx)
 	}
 }
 
-func doLeader(ctx context.Context) {
+func (s *ElectionServer) doLeader(ctx context.Context) {
 	panic("unimplemented")
 }
 
-func doCandidate(ctx context.Context) {
+func (s *ElectionServer) doCandidate(ctx context.Context) {
 	panic("unimplemented")
 }
 
-func doFollower(ctx context.Context) {
-	panic("unimplemented")
+func (s *ElectionServer) doFollower(ctx context.Context) {
+	for {
+		select {
+		case aeReq := <-s.aeRequestChan:
+			log.Printf("Follower recieved AppendEntries request from %v\n", aeReq.GetLeaderId())
+			s.aeResponseChan <- &raftpb.AppendEntriesResult{
+				Term:    int32(s.term),
+				Success: true,
+			}
+		}
+	}
 }
 
 // Handle a RequestVote call from a peer in the candidate state.
@@ -63,7 +82,9 @@ func (s *ElectionServer) RequestVote(
 	req *raftpb.VoteRequest,
 ) (*raftpb.Vote, error) {
 	log.Printf("Vote request received from %d", req.GetCandidateId())
-	vote := &raftpb.Vote{Term: 1, VoteGranted: false}
+	// DO NOT MODIFY REQUEST after sending
+	s.rvRequestChan <- req
+	vote := <-s.rvResponseChan
 	return vote, nil
 }
 
@@ -75,11 +96,10 @@ func (s *ElectionServer) AppendEntries(
 	ctx context.Context,
 	req *raftpb.AppendEntriesRequest,
 ) (*raftpb.AppendEntriesResult, error) {
-	log.Printf("Heartbeat received from %d", req.GetLeaderId())
-	res := &raftpb.AppendEntriesResult{
-		Term:    req.GetTerm(),
-		Success: true,
-	}
+	log.Printf("AppendEntries request received from %d", req.GetLeaderId())
+	// DO NOT MODIFY REQUEST after sending
+	s.aeRequestChan <- req
+	res := <-s.aeResponseChan
 	return res, nil
 }
 
