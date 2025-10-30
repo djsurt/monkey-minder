@@ -69,10 +69,16 @@ func (s *ElectionServer) doCandidate(ctx context.Context) {
 // Perform the follower loop, responding to RPC requests until an election
 // timeout occurs. Set state to CANDIDATE and return upon an election timeout.
 func (s *ElectionServer) doFollower(ctx context.Context) {
+	electionTimeout := time.After(getNewElectionTimeout(150, 300))
 	for {
 		select {
+		case <-electionTimeout:
+			log.Printf("Election timeout occurred. Switching to CANDIDATE state\n")
+			s.state = CANDIDATE
+			return
 		case aeReq := <-s.aeRequestChan:
 			log.Printf("Follower recieved AppendEntries request from %v\n", aeReq.GetLeaderId())
+			electionTimeout = time.After(getNewElectionTimeout(150, 300))
 			s.aeResponseChan <- &raftpb.AppendEntriesResult{
 				Term:    int32(s.term),
 				Success: true,
