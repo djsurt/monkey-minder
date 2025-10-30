@@ -12,6 +12,10 @@ import (
 	"google.golang.org/grpc"
 )
 
+type Term uint64
+type LogIndex uint64
+type NodeId uint64
+
 type NodeState uint
 
 const (
@@ -26,8 +30,8 @@ type ElectionServer struct {
 	state          NodeState
 	grpcServer     *grpc.Server
 	listener       net.Conn
-	term           uint
-	logIndex       uint
+	term           Term
+	logIndex       LogIndex
 	aeRequestChan  chan *raftpb.AppendEntriesRequest
 	aeResponseChan chan *raftpb.AppendEntriesResult
 	rvRequestChan  chan *raftpb.VoteRequest
