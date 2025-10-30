@@ -1,4 +1,4 @@
-package raftpb
+package raft
 
 import (
 	"context"

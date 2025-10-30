@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	raft "github.com/djsurt/monkey-minder/server/internal"
+	"github.com/djsurt/monkey-minder/server/internal/raft"
 	raftpb "github.com/djsurt/monkey-minder/server/proto/raft"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
