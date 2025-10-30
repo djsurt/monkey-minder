@@ -14,6 +14,10 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
+type Term uint64
+type LogIndex uint64
+type NodeId uint64
+
 type NodeState uint
 
 const (
@@ -29,9 +33,9 @@ type ElectionServer struct {
 	state          NodeState
 	grpcServer     *grpc.Server
 	listener       net.Conn
-	term           uint
-	logIndex       uint
 	peerConns      map[string]raftpb.ElectionClient
+	term           Term
+	logIndex       LogIndex
 	aeRequestChan  chan *raftpb.AppendEntriesRequest
 	aeResponseChan chan *raftpb.AppendEntriesResult
 	rvRequestChan  chan *raftpb.VoteRequest
@@ -63,6 +67,14 @@ func (s *ElectionServer) doLoop(ctx context.Context) {
 	case LEADER:
 		s.doLeader(ctx)
 	}
+}
+
+func (s *ElectionServer) doCommonAE(request *raftpb.AppendEntriesRequest) raftpb.AppendEntriesResult {
+	panic("unimplemented")
+}
+
+func (s *ElectionServer) doCommonRV(request *raftpb.VoteRequest) raftpb.Vote {
+	panic("unimplemented")
 }
 
 func (s *ElectionServer) doLeader(ctx context.Context) {

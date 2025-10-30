@@ -4,32 +4,32 @@ package raft;
 option go_package = "github.com/djsurt/monkey-minder/server/proto/raftpb";
 
 message VoteRequest {
-  int32 term = 1;
-  int32 candidateId = 2;
-  int32 lastLogIndex = 3;
-  int32 lastLogTerm = 4;
+  uint64 term = 1;
+  uint64 candidateId = 2;
+  uint64 lastLogIndex = 3;
+  uint64 lastLogTerm = 4;
 }
 
 message Vote {
-  int32 term = 1;
+  uint64 term = 1;
   bool voteGranted = 2;
 }
 
 message AppendEntriesRequest {
-  int32 term = 1;
-  int32 leaderId = 2;
-  int32 prevLogIndex = 3;
-  int32 prevLogTerm = 4;
+  uint64 term = 1;
+  uint64 leaderId = 2;
+  uint64 prevLogIndex = 3;
+  uint64 prevLogTerm = 4;
   // TODO: Implement me properly.
   message Entry {
     string message = 1;
   }
   repeated Entry entries = 5;
-  int32 leaderCommit = 6;
+  uint64 leaderCommit = 6;
 }
 
 message AppendEntriesResult {
-  int32 term = 1;
+  uint64 term = 1;
   bool success = 2;
 }
 
