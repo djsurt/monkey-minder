@@ -6,10 +6,12 @@ import (
 	"log"
 	"math/rand"
 	"net"
+	"net/url"
 	"time"
 
 	raftpb "github.com/djsurt/monkey-minder/server/proto/raft"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 type NodeState uint
@@ -23,21 +25,26 @@ const (
 type ElectionServer struct {
 	raftpb.UnimplementedElectionServer
 	Port           int
+	peers          map[string]url.URL
 	state          NodeState
 	grpcServer     *grpc.Server
 	listener       net.Conn
 	term           uint
 	logIndex       uint
+	peerConns      map[string]raftpb.ElectionClient
 	aeRequestChan  chan *raftpb.AppendEntriesRequest
 	aeResponseChan chan *raftpb.AppendEntriesResult
 	rvRequestChan  chan *raftpb.VoteRequest
 	rvResponseChan chan *raftpb.Vote
 }
 
-func NewElectionServer(port int) *ElectionServer {
+func NewElectionServer(port int, peers map[string]url.URL) *ElectionServer {
 	return &ElectionServer{
 		Port:           port,
+		peers:          peers,
 		state:          FOLLOWER,
+		term:           1,
+		logIndex:       1,
 		aeRequestChan:  make(chan *raftpb.AppendEntriesRequest),
 		aeResponseChan: make(chan *raftpb.AppendEntriesResult),
 		rvRequestChan:  make(chan *raftpb.VoteRequest),
@@ -128,11 +135,19 @@ func (s *ElectionServer) Serve() error {
 	if err != nil {
 		return fmt.Errorf("Error creating TCP socket: %v", err)
 	}
+	defer listener.Close()
 
+	// Create & register gRPC server
 	s.grpcServer = grpc.NewServer()
 	raftpb.RegisterElectionServer(s.grpcServer, s)
 
-	// start stateMachineLoop
+	// Create peer connections
+	err = s.connectToPeers()
+	if err != nil {
+		return err
+	}
+
+	// Start stateMachineLoop
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	defer cancelFunc()
 	go s.doLoop(ctx)
@@ -144,4 +159,24 @@ func (s *ElectionServer) Serve() error {
 	}
 
 	return &ServerClosed{}
+}
+
+// Connect to all peers for RPCs
+func (s *ElectionServer) connectToPeers() error {
+	// Set default DialOptions once
+	var opts []grpc.DialOption
+	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+
+	peerConns := make(map[string]raftpb.ElectionClient)
+	for peer, url := range s.peers {
+		conn, err := grpc.NewClient(url.String(), opts...)
+		if err != nil {
+			return err
+		}
+		client := raftpb.NewElectionClient(conn)
+		peerConns[peer] = client
+	}
+
+	s.peerConns = peerConns
+	return nil
 }
