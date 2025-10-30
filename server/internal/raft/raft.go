@@ -62,6 +62,29 @@ func (s *ElectionServer) doLoop(ctx context.Context) {
 	}
 }
 
+func (s *ElectionServer) transitionState(newState NodeState) {
+	if s.state == newState {
+		return
+	}
+	switch newState {
+	case FOLLOWER:
+		// ...
+	case CANDIDATE:
+		// ...
+	case LEADER:
+		// ...
+	}
+	s.state = newState
+}
+
+func (s *ElectionServer) doCommonAE(request *raftpb.AppendEntriesRequest) raftpb.AppendEntriesResult {
+	panic("unimplemented")
+}
+
+func (s *ElectionServer) doCommonRV(request *raftpb.VoteRequest) raftpb.Vote {
+	panic("unimplemented")
+}
+
 func (s *ElectionServer) doLeader(ctx context.Context) {
 	panic("unimplemented")
 }
