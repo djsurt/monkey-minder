@@ -78,11 +78,24 @@ func (s *ElectionServer) doFollower(ctx context.Context) {
 			return
 		case aeReq := <-s.aeRequestChan:
 			log.Printf("Follower recieved AppendEntries request from %v\n", aeReq.GetLeaderId())
+			// If the term in the request is less than our current term, return false
+			if uint(aeReq.GetTerm()) < s.term {
+				log.Printf("Rejecting AppendEntries request from %v: term %d < current term %d\n", aeReq.GetLeaderId(), aeReq.GetTerm(), s.term)
+				s.aeResponseChan <- &raftpb.AppendEntriesResult{
+					Term:    int32(s.term),
+					Success: false,
+				}
+				continue
+			}
+			prev_log_index := uint(aeReq.GetPrevLogIndex())
+			prev_log_term := uint(aeReq.GetPrevLogTerm())
+
 			electionTimeout = time.After(getNewElectionTimeout(150, 300))
 			s.aeResponseChan <- &raftpb.AppendEntriesResult{
 				Term:    int32(s.term),
 				Success: true,
 			}
+
 		}
 	}
 }
