@@ -44,7 +44,7 @@ func main() {
 	serverErr := make(chan error)
 	go func(errChan chan<- error) {
 		fmt.Printf("Election server listening on port %d...\n", port)
-		_, err := electionServer.Serve()
+		err := electionServer.Serve()
 		if err != nil {
 			errChan <- err
 		}
