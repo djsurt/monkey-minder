@@ -89,7 +89,30 @@ func (s *ElectionServer) doFollower(ctx context.Context) {
 			}
 			prev_log_index := uint(aeReq.GetPrevLogIndex())
 			prev_log_term := uint(aeReq.GetPrevLogTerm())
+			// TODO: Since we don't have the log implemented, have a simple check for rejecting (replace with actual log logic eventually)
+			//Placeholder logic for reply false if log doesn't contain an entry at prevLogIndex whose term matches prevLogTerm
+			if prev_log_index > s.logIndex {
+				log.Printf("Rejecting prevLogIndex %d > current logIndex %d\n", prev_log_index, s.logIndex)
+				s.aeResponseChan <- &raftpb.AppendEntriesResult{
+					Term:    int32(s.term),
+					Success: false,
+				}
+				continue
+			}
 
+			//TODO: Delete conflicting entries
+			// If an existing entry conflicts with a new one (same index, but dufferent terms)
+			// delete the existing entry and all that follow it
+
+			//TODO: Append new entries
+			// for _, entry := range aeReq.GetEntries() {
+			// 	s.log.Append(entry)
+			// }
+
+			//TODO: Update the commit index
+			// if uint(aeReq.GetLeaderCommit()) > s.commitIndex {
+			// 	s.commitIndex = min(uint(aeReq.GetLeaderCommit()), s.logIndex)
+			// }
 			electionTimeout = time.After(getNewElectionTimeout(150, 300))
 			s.aeResponseChan <- &raftpb.AppendEntriesResult{
 				Term:    int32(s.term),
