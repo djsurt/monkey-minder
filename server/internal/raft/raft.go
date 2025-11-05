@@ -63,13 +63,15 @@ func NewElectionServer(port int, id NodeId, peers map[NodeId]url.URL) *ElectionS
 // Run the state machine continuously, delegating to the appropriate node
 // state handler loop.
 func (s *ElectionServer) doLoop(ctx context.Context) {
-	switch s.state {
-	case FOLLOWER:
-		s.doFollower(ctx)
-	case CANDIDATE:
-		s.doCandidate(ctx)
-	case LEADER:
-		s.doLeader(ctx)
+	for {
+		switch s.state {
+		case FOLLOWER:
+			s.doFollower(ctx)
+		case CANDIDATE:
+			s.doCandidate(ctx)
+		case LEADER:
+			s.doLeader(ctx)
+		}
 	}
 }
 
