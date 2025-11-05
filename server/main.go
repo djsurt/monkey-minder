@@ -46,7 +46,7 @@ func main() {
 	// Filter myself from peers
 	delete(clusterMembers, nodeId)
 
-	electionServer := raft.NewElectionServer(port, clusterMembers)
+	electionServer := raft.NewElectionServer(port, nodeId, clusterMembers)
 	// Start the server
 	fmt.Printf("Election server listening on port %d...\n", port)
 	log.Fatal(electionServer.Serve())

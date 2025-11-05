@@ -29,6 +29,7 @@ const (
 type ElectionServer struct {
 	raftpb.UnimplementedElectionServer
 	Port           int
+	Id             NodeId
 	peers          map[NodeId]url.URL
 	state          NodeState
 	grpcServer     *grpc.Server
@@ -40,15 +41,16 @@ type ElectionServer struct {
 	aeResponseChan chan *raftpb.AppendEntriesResult
 	rvRequestChan  chan *raftpb.VoteRequest
 	rvResponseChan chan *raftpb.Vote
-	votedFor       *int
+	votedFor       NodeId
 }
 
-func NewElectionServer(port int, peers map[NodeId]url.URL) *ElectionServer {
+func NewElectionServer(port int, id NodeId, peers map[NodeId]url.URL) *ElectionServer {
 	return &ElectionServer{
 		Port:           port,
+		Id:             id,
 		peers:          peers,
 		state:          FOLLOWER,
-		votedFor:       nil,
+		votedFor:       0,
 		term:           1,
 		logIndex:       1,
 		aeRequestChan:  make(chan *raftpb.AppendEntriesRequest),
@@ -111,10 +113,10 @@ func (s *ElectionServer) doFollower(ctx context.Context) {
 
 			if Term(aeReq.GetTerm()) > s.term {
 				s.term = Term(aeReq.GetTerm())
-				s.votedFor = nil // New term, can vote again
+				s.votedFor = 0 // New term, can vote again
 			}
 			// TODO: need to implement the bottom
-			prev_log_index := uint(aeReq.GetPrevLogIndex())
+			prev_log_index := LogIndex(aeReq.GetPrevLogIndex())
 
 			// Uncomment me when you're ready to implement log
 			// prev_log_term := uint(aeReq.GetPrevLogTerm())
@@ -158,19 +160,19 @@ func (s *ElectionServer) doFollower(ctx context.Context) {
 				continue
 			}
 			voteGranted := false
-			if s.votedFor == nil || *s.votedFor == int(rvReq.GetCandidateId()) {
+			if s.votedFor == 0 || s.votedFor == NodeId(rvReq.GetCandidateId()) {
 				candidateLogIndex := uint(rvReq.GetLastLogIndex())
 				if LogIndex(candidateLogIndex) >= s.logIndex {
 					voteGranted = true
 					candidateId := int((rvReq.GetCandidateId()))
-					s.votedFor = &candidateId
+					s.votedFor = NodeId(candidateId)
 					electionTimeout = time.After(getNewElectionTimeout(150, 300))
 					log.Printf("Granting vote to %d for term %d\n", rvReq.GetCandidateId(), rvReq.GetTerm())
 				} else {
 					log.Printf("Denying vote to %d: candidate log not up-to-date", rvReq.GetCandidateId())
 				}
 			} else {
-				log.Printf("Denying vote to %d: already voted for %d", rvReq.GetCandidateId(), *s.votedFor)
+				log.Printf("Denying vote to %d: already voted for %d", rvReq.GetCandidateId(), s.votedFor)
 			}
 			s.rvResponseChan <- &raftpb.Vote{
 				Term:        uint64(s.term),
