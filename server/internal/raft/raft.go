@@ -29,11 +29,11 @@ const (
 type ElectionServer struct {
 	raftpb.UnimplementedElectionServer
 	Port           int
-	peers          map[string]url.URL
+	peers          map[NodeId]url.URL
 	state          NodeState
 	grpcServer     *grpc.Server
 	listener       net.Conn
-	peerConns      map[string]raftpb.ElectionClient
+	peerConns      map[NodeId]raftpb.ElectionClient
 	term           Term
 	logIndex       LogIndex
 	aeRequestChan  chan *raftpb.AppendEntriesRequest
@@ -43,7 +43,7 @@ type ElectionServer struct {
 	votedFor       *int
 }
 
-func NewElectionServer(port int, peers map[string]url.URL) *ElectionServer {
+func NewElectionServer(port int, peers map[NodeId]url.URL) *ElectionServer {
 	return &ElectionServer{
 		Port:           port,
 		peers:          peers,
@@ -259,7 +259,7 @@ func (s *ElectionServer) connectToPeers() error {
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
-	peerConns := make(map[string]raftpb.ElectionClient)
+	peerConns := make(map[NodeId]raftpb.ElectionClient)
 	for peer, url := range s.peers {
 		conn, err := grpc.NewClient(url.String(), opts...)
 		if err != nil {

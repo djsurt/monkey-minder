@@ -19,8 +19,7 @@ type ElectionServer struct {
 }
 
 func main() {
-	var nodeId string
-	flag.StringVar(&nodeId, "id", "", "The node id to use. This should match a name in the cluster config")
+	id := flag.Int("id", 0, "The node id to use. This should match a name in the cluster config")
 	flag.Parse()
 
 	clusterMembers, err := parseClusterConfig("cluster.conf")
@@ -28,6 +27,9 @@ func main() {
 		fmt.Printf("Error reading cluster config: %v\n", err)
 		os.Exit(1)
 	}
+
+	// Convert to NodeId type
+	nodeId := raft.NodeId(*id)
 
 	if _, ok := clusterMembers[nodeId]; !ok {
 		fmt.Printf("Please provide a node id that is in the cluster config.\n")
@@ -50,8 +52,8 @@ func main() {
 	log.Fatal(electionServer.Serve())
 }
 
-func parseClusterConfig(configPath string) (peers map[string]url.URL, err error) {
-	peers = make(map[string]url.URL)
+func parseClusterConfig(configPath string) (peers map[raft.NodeId]url.URL, err error) {
+	peers = make(map[raft.NodeId]url.URL)
 
 	// Read from cluster config file
 	data, err := os.ReadFile(configPath)
@@ -60,17 +62,23 @@ func parseClusterConfig(configPath string) (peers map[string]url.URL, err error)
 	}
 
 	// Parse for valid peer entries
-	configRegexp := regexp.MustCompile(`([[:alpha:]]+)\s+(.*)\n`)
+	configRegexp := regexp.MustCompile(`(\d+)\s+(.*)\n`)
 	matches := configRegexp.FindAllStringSubmatch(string(data), -1)
 
 	// Loop over match, adding to peers map
 	for _, match := range matches {
-		id, rest := match[1], match[2]
-		url, err := url.Parse(rest)
+		id_token, url_token := match[1], match[2]
+		// Convert id token to int
+		id, err := strconv.Atoi(id_token)
+		if err != nil {
+			return err, nil
+		}
+		// Parse URL
+		url, err := url.Parse(url_token)
 		if err != nil {
 			return nil, err
 		}
-		peers[id] = *url
+		peers[raft.NodeId(id)] = *url
 	}
 	return peers, nil
 }
