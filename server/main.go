@@ -39,7 +39,7 @@ func main() {
 	myUrl := clusterMembers[nodeId]
 	port, err := strconv.Atoi(myUrl.Port())
 	if err != nil {
-		fmt.Printf("Please specify a port number for this node in the cluster config")
+		fmt.Printf("Error getting port number from url: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -71,7 +71,7 @@ func parseClusterConfig(configPath string) (peers map[raft.NodeId]url.URL, err e
 		// Convert id token to int
 		id, err := strconv.Atoi(id_token)
 		if err != nil {
-			return err, nil
+			return nil, err
 		}
 		// Parse URL
 		url, err := url.Parse(url_token)
