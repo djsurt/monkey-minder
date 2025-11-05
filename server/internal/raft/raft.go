@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"net"
 	"net/url"
+	"sync"
 	"time"
 
 	raftpb "github.com/djsurt/monkey-minder/server/proto/raft"
@@ -15,7 +16,21 @@ import (
 )
 
 type Term uint64
+
+func (t Term) Raw() uint64 {
+	return uint64(t)
+}
+
 type LogIndex uint64
+
+func (i LogIndex) Raw() uint64 {
+	return uint64(i)
+}
+
+func LogIndexFromRaw(raw uint64) LogIndex {
+	return LogIndex(raw)
+}
+
 type NodeId uint64
 
 type NodeState uint
@@ -78,7 +93,91 @@ func (s *ElectionServer) doCommonRV(request *raftpb.VoteRequest) raftpb.Vote {
 }
 
 func (s *ElectionServer) doLeader(ctx context.Context) {
-	panic("unimplemented")
+	// TODO: "Upon election: send initial empty AppendEntries RPCs (heartbeat) to each server; repeat during idle periods to prevent election timeouts (§5.2)"
+	// TODO: "If command received from client: append entry to local log, respond after entry applied to state machine (§5.3)"
+	// TODO: "If last log index ≥ nextIndex for a follower: send AppendEntries RPC with log entries starting at nextIndex"
+	//       "If successful: update nextIndex and matchIndex for follower (§5.3)"
+	//       "If AppendEntries fails because of log inconsistency: decrement nextIndex and retry (§5.3)"
+	// TODO: "If there exists an N such that N > commitIndex, a majority of matchIndex[i] ≥ N, and log[N].term == currentTerm: set commitIndex = N (§5.3, §5.4)."
+
+	// next entry to send
+	var nextIndex map[NodeId]LogIndex = make(map[NodeId]LogIndex, len(s.peers))
+	// highest entry known to be definitely on that peer
+	var matchIndex map[NodeId]LogIndex = make(map[NodeId]LogIndex, len(s.peers))
+	for id, _ := range s.peers {
+		nextIndex[id] = s.log.IdxAfterLast()
+		// initially, we don't know that any peers have anything,
+		// so start at index before the first log entry
+		matchIndex[id] = LogIndex(0)
+	}
+
+	doAESendChan := make(chan NodeId)
+
+	setupPeerComm := func(id NodeId) (markDidAE func()) {
+		// FIXME i think this will double-enqueue AEs in some situations?
+		// TODO should be our election timeout (minus some epsilon?)
+		heartbeatInterval := time.Second * 5
+		shouldHeartbeat := time.NewTicker(heartbeatInterval)
+		shouldAE := make(chan struct{})
+		// push auto heartbeats to the channel same channel as manual ones
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-shouldHeartbeat.C:
+					shouldAE <- struct{}{}
+				}
+			}
+		}()
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-shouldAE:
+					doAESendChan <- id
+					shouldHeartbeat.Reset(heartbeatInterval)
+				}
+			}
+		}()
+		return func() {
+			shouldHeartbeat.Reset(heartbeatInterval)
+		}
+	}
+
+	markPeerDidAE := make(map[NodeId]func(), len(s.peers))
+	for id, _ := range s.peers {
+		markPeerDidAE[id] = setupPeerComm(id)
+	}
+
+	for {
+		select {
+			// TODO also need to handle incoming stuff from clients
+		case req := <-s.aeRequestChan:
+			// incoming AppendEntries
+			res := s.doCommonAE(req)
+			s.aeResponseChan <- &res
+			if s.term < Term(req.Term) {
+				s.term = Term(req.Term)
+				s.state = FOLLOWER
+				return
+			}
+		case req := <-s.rvRequestChan:
+			// incoming RequestVote
+			res := s.doCommonRV(req)
+			s.rvResponseChan <- &res
+			if s.term < Term(req.Term) {
+				s.term = Term(req.Term)
+				s.state = FOLLOWER
+				return
+			}
+		case id := <-doAESendChan:
+			// outgoing AppendEntries
+			markPeerDidAE[id]()
+			panic("TODO")
+		}
+	}
 }
 
 func (s *ElectionServer) doCandidate(ctx context.Context) {
@@ -93,7 +192,7 @@ func (s *ElectionServer) doFollower(ctx context.Context) {
 		case aeReq := <-s.aeRequestChan:
 			log.Printf("Follower recieved AppendEntries request from %v\n", aeReq.GetLeaderId())
 			s.aeResponseChan <- &raftpb.AppendEntriesResult{
-				Term:    int32(s.term),
+				Term:    uint64(s.term),
 				Success: true,
 			}
 		}
