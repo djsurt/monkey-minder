@@ -6,11 +6,17 @@ import (
 	"log"
 	"math/rand"
 	"net"
+	"net/url"
 	"time"
 
 	raftpb "github.com/djsurt/monkey-minder/server/proto/raft"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
+
+type Term uint64
+type LogIndex uint64
+type NodeId uint64
 
 type NodeState uint
 
@@ -23,11 +29,13 @@ const (
 type ElectionServer struct {
 	raftpb.UnimplementedElectionServer
 	Port           int
+	peers          map[string]url.URL
 	state          NodeState
 	grpcServer     *grpc.Server
 	listener       net.Conn
-	term           uint
-	logIndex       uint
+	peerConns      map[string]raftpb.ElectionClient
+	term           Term
+	logIndex       LogIndex
 	aeRequestChan  chan *raftpb.AppendEntriesRequest
 	aeResponseChan chan *raftpb.AppendEntriesResult
 	rvRequestChan  chan *raftpb.VoteRequest
@@ -35,11 +43,14 @@ type ElectionServer struct {
 	votedFor       *int
 }
 
-func NewElectionServer(port int) *ElectionServer {
+func NewElectionServer(port int, peers map[string]url.URL) *ElectionServer {
 	return &ElectionServer{
 		Port:           port,
+		peers:          peers,
 		state:          FOLLOWER,
 		votedFor:       nil,
+		term:           1,
+		logIndex:       1,
 		aeRequestChan:  make(chan *raftpb.AppendEntriesRequest),
 		aeResponseChan: make(chan *raftpb.AppendEntriesResult),
 		rvRequestChan:  make(chan *raftpb.VoteRequest),
@@ -58,6 +69,14 @@ func (s *ElectionServer) doLoop(ctx context.Context) {
 	case LEADER:
 		s.doLeader(ctx)
 	}
+}
+
+func (s *ElectionServer) doCommonAE(request *raftpb.AppendEntriesRequest) raftpb.AppendEntriesResult {
+	panic("unimplemented")
+}
+
+func (s *ElectionServer) doCommonRV(request *raftpb.VoteRequest) raftpb.Vote {
+	panic("unimplemented")
 }
 
 func (s *ElectionServer) doLeader(ctx context.Context) {
@@ -81,17 +100,17 @@ func (s *ElectionServer) doFollower(ctx context.Context) {
 		case aeReq := <-s.aeRequestChan:
 			log.Printf("Follower recieved AppendEntries request from %v\n", aeReq.GetLeaderId())
 			// If the term in the request is less than our current term, return false
-			if uint(aeReq.GetTerm()) < s.term {
+			if Term(aeReq.GetTerm()) < s.term {
 				log.Printf("Rejecting AppendEntries request from %v: term %d < current term %d\n", aeReq.GetLeaderId(), aeReq.GetTerm(), s.term)
 				s.aeResponseChan <- &raftpb.AppendEntriesResult{
-					Term:    int32(s.term),
+					Term:    uint64(s.term),
 					Success: false,
 				}
 				continue
 			}
 
-			if uint(aeReq.GetTerm()) > s.term {
-				s.term = uint(aeReq.GetTerm())
+			if Term(aeReq.GetTerm()) > s.term {
+				s.term = Term(aeReq.GetTerm())
 				s.votedFor = nil // New term, can vote again
 			}
 			// TODO: need to implement the bottom
@@ -102,10 +121,10 @@ func (s *ElectionServer) doFollower(ctx context.Context) {
 
 			// TODO: Since we don't have the log implemented, have a simple check for rejecting (replace with actual log logic eventually)
 			//Placeholder logic for reply false if log doesn't contain an entry at prevLogIndex whose term matches prevLogTerm
-			if prev_log_index > s.logIndex {
+			if LogIndex(prev_log_index) > s.logIndex {
 				log.Printf("Rejecting prevLogIndex %d > current logIndex %d\n", prev_log_index, s.logIndex)
 				s.aeResponseChan <- &raftpb.AppendEntriesResult{
-					Term:    int32(s.term),
+					Term:    uint64(s.term),
 					Success: false,
 				}
 				continue
@@ -126,14 +145,14 @@ func (s *ElectionServer) doFollower(ctx context.Context) {
 			// }
 			electionTimeout = time.After(getNewElectionTimeout(150, 300))
 			s.aeResponseChan <- &raftpb.AppendEntriesResult{
-				Term:    int32(s.term),
+				Term:    uint64(s.term),
 				Success: true,
 			}
 		case rvReq := <-s.rvRequestChan:
-			if uint(rvReq.GetTerm()) < s.term {
+			if Term(rvReq.GetTerm()) < s.term {
 				log.Printf("Rejecting vote request from %v: term %d < current term %d\n", rvReq.GetCandidateId(), rvReq.GetTerm(), s.term)
 				s.rvResponseChan <- &raftpb.Vote{
-					Term:        int32(s.term),
+					Term:        uint64(s.term),
 					VoteGranted: false,
 				}
 				continue
@@ -141,7 +160,7 @@ func (s *ElectionServer) doFollower(ctx context.Context) {
 			voteGranted := false
 			if s.votedFor == nil || *s.votedFor == int(rvReq.GetCandidateId()) {
 				candidateLogIndex := uint(rvReq.GetLastLogIndex())
-				if candidateLogIndex >= s.logIndex {
+				if LogIndex(candidateLogIndex) >= s.logIndex {
 					voteGranted = true
 					candidateId := int((rvReq.GetCandidateId()))
 					s.votedFor = &candidateId
@@ -154,7 +173,7 @@ func (s *ElectionServer) doFollower(ctx context.Context) {
 				log.Printf("Denying vote to %d: already voted for %d", rvReq.GetCandidateId(), *s.votedFor)
 			}
 			s.rvResponseChan <- &raftpb.Vote{
-				Term:        int32(s.term),
+				Term:        uint64(s.term),
 				VoteGranted: voteGranted,
 			}
 		}
@@ -208,11 +227,19 @@ func (s *ElectionServer) Serve() error {
 	if err != nil {
 		return fmt.Errorf("Error creating TCP socket: %v", err)
 	}
+	defer listener.Close()
 
+	// Create & register gRPC server
 	s.grpcServer = grpc.NewServer()
 	raftpb.RegisterElectionServer(s.grpcServer, s)
 
-	// start stateMachineLoop
+	// Create peer connections
+	err = s.connectToPeers()
+	if err != nil {
+		return err
+	}
+
+	// Start stateMachineLoop
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	defer cancelFunc()
 	go s.doLoop(ctx)
@@ -224,4 +251,24 @@ func (s *ElectionServer) Serve() error {
 	}
 
 	return &ServerClosed{}
+}
+
+// Connect to all peers for RPCs
+func (s *ElectionServer) connectToPeers() error {
+	// Set default DialOptions once
+	var opts []grpc.DialOption
+	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+
+	peerConns := make(map[string]raftpb.ElectionClient)
+	for peer, url := range s.peers {
+		conn, err := grpc.NewClient(url.String(), opts...)
+		if err != nil {
+			return err
+		}
+		client := raftpb.NewElectionClient(conn)
+		peerConns[peer] = client
+	}
+
+	s.peerConns = peerConns
+	return nil
 }
