@@ -96,7 +96,10 @@ func (s *ElectionServer) doFollower(ctx context.Context) {
 			}
 			// TODO: need to implement the bottom
 			prev_log_index := uint(aeReq.GetPrevLogIndex())
-			prev_log_term := uint(aeReq.GetPrevLogTerm())
+
+			// Uncomment me when you're ready to implement log
+			// prev_log_term := uint(aeReq.GetPrevLogTerm())
+
 			// TODO: Since we don't have the log implemented, have a simple check for rejecting (replace with actual log logic eventually)
 			//Placeholder logic for reply false if log doesn't contain an entry at prevLogIndex whose term matches prevLogTerm
 			if prev_log_index > s.logIndex {
