@@ -86,7 +86,103 @@ func (s *ElectionServer) doLeader(ctx context.Context) {
 }
 
 func (s *ElectionServer) doCandidate(ctx context.Context) {
-	panic("unimplemented")
+	s.term += 1
+	s.votedFor = s.Id
+	voteCount := 1
+	electionTimer := time.After(getNewElectionTimeout(150, 300))
+	voteResponses := s.requestVotes(ctx)
+	defer close(voteResponses)
+
+	for {
+		select {
+		case vote := <-voteResponses:
+			if vote.granted {
+				log.Printf("Vote received from node %d\n", vote.peer)
+				voteCount += 1
+
+				// Check for quorum
+				if voteCount > (len(s.peerConns)+1)/2 {
+					log.Printf("Asserting myself as leader.\n")
+					s.state = LEADER
+					return
+				}
+			} else {
+				if vote.err != nil {
+					log.Printf("Error requesting vote from node %d: %v", vote.peer, vote.err)
+				}
+
+				if vote.term > s.term {
+					log.Printf("Received more recent term from node %d. Reverting to follower...\n", vote.peer)
+					s.term = vote.term
+					s.state = FOLLOWER
+					return
+				}
+			}
+		case <-electionTimer:
+			// Restart the Candidate loop
+			s.state = CANDIDATE
+			return
+		case aeReq := <-s.aeRequestChan:
+			peerTerm := Term(aeReq.GetTerm())
+			peerId := NodeId(aeReq.GetLeaderId())
+
+			// Another leader won
+			if peerTerm >= s.term {
+				log.Printf("Received an AppendEntries message from new leader %d. Reverting to follower...\n", peerId)
+				// TODO: Handle AE request. For now, defering it to be handled by follower.
+				s.aeRequestChan <- aeReq
+				s.term = peerTerm
+			} else {
+				log.Printf("Rejecting AppendEntries from lower term node %d\n", peerId)
+				// TODO: Refactor to use doCommonAE when its implemented
+				s.aeResponseChan <- &raftpb.AppendEntriesResult{
+					Term:    uint64(s.term),
+					Success: false,
+				}
+			}
+		}
+	}
+}
+
+type VoteResult struct {
+	peer    NodeId
+	granted bool
+	term    Term
+	err     error
+}
+
+func (s *ElectionServer) requestVotes(ctx context.Context) chan VoteResult {
+	voteResponses := make(chan VoteResult, len(s.peerConns))
+
+	voteReq := &raftpb.VoteRequest{
+		Term:         uint64(s.term),
+		CandidateId:  uint64(s.Id),
+		LastLogIndex: uint64(s.logIndex),
+		LastLogTerm:  1, // TODO: Use the latest log index from log module
+	}
+
+	for peerId, peerConn := range s.peerConns {
+		go func(voteResult chan<- VoteResult) {
+			vote, err := peerConn.RequestVote(ctx, voteReq)
+			if err != nil {
+				voteResult <- VoteResult{
+					peer:    peerId,
+					granted: false,
+					term:    s.term,
+					err:     err,
+				}
+				return
+			}
+			voteResult <- VoteResult{
+				peer:    peerId,
+				granted: vote.GetVoteGranted(),
+				term:    Term(vote.GetTerm()),
+				err:     err,
+			}
+		}(voteResponses)
+	}
+
+	return voteResponses
 }
 
 // Perform the follower loop, responding to RPC requests until an election
