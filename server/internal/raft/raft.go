@@ -204,65 +204,93 @@ func (s *ElectionServer) doFollower(ctx context.Context) {
 			}
 
 		case rvReq := <-s.rvRequestChan:
-			if Term(rvReq.GetTerm()) < s.term {
-				log.Printf("Rejecting vote request from %v: term %d < current term %d\n", rvReq.GetCandidateId(), rvReq.GetTerm(), s.term)
-				s.rvResponseChan <- &raftpb.Vote{
-					Term:        uint64(s.term),
-					VoteGranted: false,
-				}
-				continue
-			}
-			voteGranted := false
-			if s.votedFor == 0 || s.votedFor == NodeId(rvReq.GetCandidateId()) {
-				candidateLogIndex := uint(rvReq.GetLastLogIndex())
-				if LogIndex(candidateLogIndex) >= s.logIndex {
-					voteGranted = true
-					candidateId := int((rvReq.GetCandidateId()))
-					s.votedFor = NodeId(candidateId)
-					electionTimeout = time.After(getNewElectionTimeout(150, 300))
-					log.Printf("Granting vote to %d for term %d\n", rvReq.GetCandidateId(), rvReq.GetTerm())
-				} else {
-					log.Printf("Denying vote to %d: candidate log not up-to-date", rvReq.GetCandidateId())
-				}
-			} else {
-				log.Printf("Denying vote to %d: already voted for %d", rvReq.GetCandidateId(), s.votedFor)
-			}
-			s.rvResponseChan <- &raftpb.Vote{
-				Term:        uint64(s.term),
-				VoteGranted: voteGranted,
+			shouldResetTimeout := s.handleRequestVoteAsFollower(rvReq)
+			if shouldResetTimeout {
+				electionTimeout = time.After(getNewElectionTimeout(150, 300))
 			}
 		}
 	}
 }
 
+func (s *ElectionServer) validateTerm(requestTerm Term, senderId uint64) bool {
+	if requestTerm < s.term {
+		log.Printf("Rejecting request from %v: term %d < current term %d\n",
+			senderId, requestTerm, s.term)
+		return false
+	}
+	return true
+}
+
+func (s *ElectionServer) updateTermIfNewer(requestTerm Term) {
+	if requestTerm > s.term {
+		log.Printf("Updating term from %d to %d\n", s.term, requestTerm)
+		s.term = requestTerm
+		s.votedFor = 0 // New term, can vote again
+	}
+}
+
+func (s *ElectionServer) sendAppendEntriesResponse(success bool) {
+	s.aeResponseChan <- &raftpb.AppendEntriesResult{
+		Term:    uint64(s.term),
+		Success: success,
+	}
+}
+
+func (s *ElectionServer) canGrantVote(rvReq *raftpb.VoteRequest) bool {
+	if s.votedFor != 0 && s.votedFor != NodeId(rvReq.GetCandidateId()) {
+		log.Printf("Denying vote to %d: already voted for %d", rvReq.GetCandidateId(), s.votedFor)
+		return false
+	}
+	candidateLogIndex := LogIndex(rvReq.GetLastLogIndex())
+	if candidateLogIndex < s.logIndex {
+		log.Printf("Denying vote to %d: candidate log not up-to-date", rvReq.GetCandidateId())
+		return false
+	}
+	return true
+}
+
+func (s *ElectionServer) sendVoteResponse(success bool) {
+	s.rvResponseChan <- &raftpb.Vote{
+		Term:        uint64(s.term),
+		VoteGranted: success,
+	}
+}
+
+func (s *ElectionServer) validateLogConsistency(prevLogIndex LogIndex, prevLogTerm uint64) bool {
+	// Simplified check for now - just verify we have entries up to prevLogIndex
+	if prevLogIndex > s.logIndex {
+		log.Printf("Rejecting: prevLogIndex %d > current logIndex %d\n",
+			prevLogIndex, s.logIndex)
+		return false
+	}
+
+	// TODO: When log is implemented, also check that term matches:
+	// if s.log.GetEntry(prevLogIndex).Term != prevLogTerm {
+	//     return false
+	// }
+
+	return true
+}
+
 func (s *ElectionServer) handleAppendEntriesAsFollower(aeReq *raftpb.AppendEntriesRequest) bool {
 	log.Printf("Follower recieved AppendEntries request from %v\n", aeReq.GetLeaderId())
 	// If the term in the request is less than our current term, return false
-	if Term(aeReq.GetTerm()) < s.term {
-		log.Printf("Rejecting AppendEntries request from %v: term %d < current term %d\n", aeReq.GetLeaderId(), aeReq.GetTerm(), s.term)
-		s.aeResponseChan <- &raftpb.AppendEntriesResult{
-			Term:    uint64(s.term),
-			Success: false,
-		}
-		return false // don't reset the timeout
+	requestTerm := Term(aeReq.GetTerm())
+
+	if !s.validateTerm(requestTerm, aeReq.GetLeaderId()) {
+		s.sendAppendEntriesResponse(false)
+		return false // Don't reset timeout
 	}
 
-	//Update the term if leader has higher term
-	if Term(aeReq.GetTerm()) > s.term {
-		s.term = Term(aeReq.GetTerm())
-		s.votedFor = 0 // New term, can vote again
-	}
+	s.updateTermIfNewer(requestTerm)
 
 	//Check log consistency
-	prev_log_index := LogIndex(aeReq.GetPrevLogIndex())
+	prevLogIndex := LogIndex(aeReq.GetPrevLogIndex())
+	prevLogTerm := aeReq.GetPrevLogTerm()
 
-	if LogIndex(prev_log_index) > s.logIndex {
-		log.Printf("Rejecting prevLogIndex %d > current logIndex %d\n", prev_log_index, s.logIndex)
-		s.aeResponseChan <- &raftpb.AppendEntriesResult{
-			Term:    uint64(s.term),
-			Success: false,
-		}
-		return false // don't reset the timeout
+	if !s.validateLogConsistency(prevLogIndex, prevLogTerm) {
+		s.sendAppendEntriesResponse(false)
+		return false // Don't reset timeout
 	}
 
 	//TODO: Delete conflicting entries
@@ -278,21 +306,16 @@ func (s *ElectionServer) handleAppendEntriesAsFollower(aeReq *raftpb.AppendEntri
 	// if uint(aeReq.GetLeaderCommit()) > s.commitIndex {
 	// 	s.commitIndex = min(uint(aeReq.GetLeaderCommit()), s.logIndex)
 	// }
-	s.aeResponseChan <- &raftpb.AppendEntriesResult{
-		Term:    uint64(s.term),
-		Success: true,
-	}
+	s.sendAppendEntriesResponse(true)
 	return true // reset the timeout
 }
 
 func (s *ElectionServer) handleRequestVoteAsFollower(rvReq *raftpb.VoteRequest) bool {
-	if Term(rvReq.GetTerm()) < s.term {
-		log.Printf("Rejecting vote request from %v: term %d < current term %d\n", rvReq.GetCandidateId(), rvReq.GetTerm(), s.term)
-		s.rvResponseChan <- &raftpb.Vote{
-			Term:        uint64(s.term),
-			VoteGranted: false,
-		}
-		return false // don't reset the timeout
+
+	requestTerm := Term(rvReq.GetTerm())
+	if !s.validateTerm(requestTerm, rvReq.GetCandidateId()) {
+		s.sendVoteResponse(false)
+		return false // Don't reset timeout
 	}
 
 	voteGranted := s.canGrantVote(rvReq)
@@ -301,15 +324,9 @@ func (s *ElectionServer) handleRequestVoteAsFollower(rvReq *raftpb.VoteRequest) 
 		log.Printf("Granting vote to %d for term %d\n", rvReq.GetCandidateId(), rvReq.GetTerm())
 	}
 
-	s.rvResponseChan <- &raftpb.Vote{
-		Term:        uint64(s.term),
-		VoteGranted: voteGranted,
-	}
-	return voteGranted // reset the timeout if vote granted
-}
+	s.sendVoteResponse(voteGranted)
 
-func (s *ElectionServer) canGrantVote(rvReq *raftpb.VoteRequest) bool {
-	return false
+	return voteGranted // reset the timeout if vote granted
 }
 
 // Get a new election timeout value between min ms and max ms
