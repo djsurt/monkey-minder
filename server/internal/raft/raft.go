@@ -6,7 +6,6 @@ import (
 	"log"
 	"math/rand"
 	"net"
-	"net/url"
 	"time"
 
 	raftpb "github.com/djsurt/monkey-minder/server/proto/raft"
@@ -30,7 +29,7 @@ type ElectionServer struct {
 	raftpb.UnimplementedElectionServer
 	Port           int
 	Id             NodeId
-	peers          map[NodeId]url.URL
+	peers          map[NodeId]string
 	state          NodeState
 	grpcServer     *grpc.Server
 	listener       net.Conn
@@ -44,7 +43,7 @@ type ElectionServer struct {
 	votedFor       NodeId
 }
 
-func NewElectionServer(port int, id NodeId, peers map[NodeId]url.URL) *ElectionServer {
+func NewElectionServer(port int, id NodeId, peers map[NodeId]string) *ElectionServer {
 	return &ElectionServer{
 		Port:           port,
 		Id:             id,
@@ -360,8 +359,8 @@ func (s *ElectionServer) connectToPeers() error {
 	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	peerConns := make(map[NodeId]raftpb.ElectionClient)
-	for peer, url := range s.peers {
-		conn, err := grpc.NewClient(url.String(), opts...)
+	for peer, addr := range s.peers {
+		conn, err := grpc.NewClient(addr, opts...)
 		if err != nil {
 			return err
 		}

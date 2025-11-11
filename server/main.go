@@ -4,10 +4,10 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"net/url"
 	"os"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/djsurt/monkey-minder/server/internal/raft"
 	raftpb "github.com/djsurt/monkey-minder/server/proto/raft"
@@ -36,10 +36,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	myUrl := clusterMembers[nodeId]
-	port, err := strconv.Atoi(myUrl.Port())
+	myAddr := clusterMembers[nodeId]
+	// Split host:port to get the port number
+	parts := strings.Split(myAddr, ":")
+	if len(parts) != 2 {
+		fmt.Printf("Invalid address format: %s\n", myAddr)
+		os.Exit(1)
+	}
+	port, err := strconv.Atoi(parts[1])
 	if err != nil {
-		fmt.Printf("Error getting port number from url: %v\n", err)
+		fmt.Printf("Error parsing port number: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -52,8 +58,8 @@ func main() {
 	log.Fatal(electionServer.Serve())
 }
 
-func parseClusterConfig(configPath string) (peers map[raft.NodeId]url.URL, err error) {
-	peers = make(map[raft.NodeId]url.URL)
+func parseClusterConfig(configPath string) (peers map[raft.NodeId]string, err error) {
+	peers = make(map[raft.NodeId]string)
 
 	// Read from cluster config file
 	data, err := os.ReadFile(configPath)
@@ -67,18 +73,14 @@ func parseClusterConfig(configPath string) (peers map[raft.NodeId]url.URL, err e
 
 	// Loop over match, adding to peers map
 	for _, match := range matches {
-		id_token, url_token := match[1], match[2]
+		id_token, addr_token := match[1], match[2]
 		// Convert id token to int
 		id, err := strconv.Atoi(id_token)
 		if err != nil {
 			return nil, err
 		}
-		// Parse URL
-		url, err := url.Parse(url_token)
-		if err != nil {
-			return nil, err
-		}
-		peers[raft.NodeId(id)] = *url
+		// Store the address string directly
+		peers[raft.NodeId(id)] = addr_token
 	}
 	return peers, nil
 }
