@@ -2,6 +2,7 @@ package raft
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -90,8 +91,10 @@ func (s *ElectionServer) doCandidate(ctx context.Context) {
 	s.term += 1
 	s.votedFor = s.Id
 	voteCount := 1
-	electionTimer := time.After(getNewElectionTimeout(150, 300))
-	voteResponses := s.requestVotes(ctx)
+	electionTimer := time.After(getNewElectionTimeout(1000, 1500))
+	rpcCtx, rpcCancel := context.WithCancel(ctx)
+	voteResponses := s.requestVotes(rpcCtx)
+	defer rpcCancel()
 	defer close(voteResponses)
 
 	for {
@@ -105,6 +108,7 @@ func (s *ElectionServer) doCandidate(ctx context.Context) {
 				if voteCount > (len(s.peerConns)+1)/2 {
 					log.Printf("Asserting myself as leader.\n")
 					s.state = LEADER
+					rpcCancel()
 					return
 				}
 			} else {
@@ -122,6 +126,7 @@ func (s *ElectionServer) doCandidate(ctx context.Context) {
 		case <-electionTimer:
 			// Restart the Candidate loop
 			s.state = CANDIDATE
+			log.Printf("Election timed out. Restarting CANDIDATE state...")
 			return
 		case aeReq := <-s.aeRequestChan:
 			peerTerm := Term(aeReq.GetTerm())
@@ -166,6 +171,10 @@ func (s *ElectionServer) requestVotes(ctx context.Context) chan VoteResult {
 		go func(voteResult chan<- VoteResult) {
 			vote, err := peerConn.RequestVote(ctx, voteReq)
 			if err != nil {
+				// If the requests were cancelled, just need to terminate.
+				if errors.Is(err, context.Canceled) {
+					return
+				}
 				voteResult <- VoteResult{
 					peer:    peerId,
 					granted: false,
@@ -292,8 +301,12 @@ func (s *ElectionServer) RequestVote(
 	log.Printf("Vote request received from %d", req.GetCandidateId())
 	// DO NOT MODIFY REQUEST after sending
 	s.rvRequestChan <- req
-	vote := <-s.rvResponseChan
-	return vote, nil
+	select {
+	case vote := <-s.rvResponseChan:
+		return vote, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 // When in the leader state, make an an AppendEntries either to update a
