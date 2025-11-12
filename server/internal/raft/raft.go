@@ -40,7 +40,6 @@ type ElectionServer struct {
 	aeResponseChan chan *raftpb.AppendEntriesResult
 	rvRequestChan  chan *raftpb.VoteRequest
 	rvResponseChan chan *raftpb.Vote
-	votedFor       NodeId
 }
 
 func NewElectionServer(port int, id NodeId, peers map[NodeId]string) *ElectionServer {
@@ -49,7 +48,6 @@ func NewElectionServer(port int, id NodeId, peers map[NodeId]string) *ElectionSe
 		Id:             id,
 		peers:          peers,
 		state:          FOLLOWER,
-		votedFor:       0,
 		term:           1,
 		logIndex:       1,
 		aeRequestChan:  make(chan *raftpb.AppendEntriesRequest),
@@ -78,8 +76,57 @@ func (s *ElectionServer) doCommonAE(request *raftpb.AppendEntriesRequest) raftpb
 	panic("unimplemented")
 }
 
-func (s *ElectionServer) doCommonRV(request *raftpb.VoteRequest) raftpb.Vote {
-	panic("unimplemented")
+// Used for comparing most recent logs during RequestVotes
+type LastLog struct {
+	Term  Term
+	Index LogIndex
+}
+
+// Compare self with the other log. Returns true if self is at least as up
+// to date as other. Returns false otherwise.
+func (self *LastLog) AtLeastAsUpToDateAs(other *LastLog) bool {
+	if self.Term == other.Term {
+		return self.Index >= other.Index
+	} else {
+		return self.Term > other.Term
+	}
+}
+
+// Haddle a RequestVote request. Accepts the requestor's VoteRequest struct and
+// a NodeId containing the value of the node the requestee voted for this cycle,
+// which may be null.
+// Returns the Vote response, and sets the value of votedFor.
+func (s *ElectionServer) doCommonRV(request *raftpb.VoteRequest, votedFor *NodeId) (vote *raftpb.Vote) {
+	vote = &raftpb.Vote{
+		Term: uint64(s.term),
+	}
+
+	// §5.1: Reply false if term < currentTerm
+	if Term(request.Term) < s.term {
+		vote.VoteGranted = false
+		return vote
+	}
+
+	myLog := LastLog{
+		Term:  s.term,
+		Index: s.logIndex,
+	}
+	candidateLog := LastLog{
+		Term:  Term(request.LastLogTerm),
+		Index: LogIndex(request.LastLogIndex),
+	}
+
+	// §5.2, §5.4: If votedFor is null or candidateId, and candidate's log
+	// is at least as up-to-date as receiver's log, grant vote.
+	if (votedFor == nil || *votedFor == NodeId(request.CandidateId)) &&
+		candidateLog.AtLeastAsUpToDateAs(&myLog) {
+		vote.VoteGranted = true
+		votedFor = (*NodeId)(&request.CandidateId)
+		return vote
+	}
+
+	vote.VoteGranted = false
+	return vote
 }
 
 func (s *ElectionServer) doLeader(ctx context.Context) {
@@ -88,9 +135,9 @@ func (s *ElectionServer) doLeader(ctx context.Context) {
 
 func (s *ElectionServer) doCandidate(ctx context.Context) {
 	s.term += 1
-	s.votedFor = s.Id
+	votedFor := s.Id
 	voteCount := 1
-	electionTimer := time.After(getNewElectionTimeout(1000, 1500))
+	electionTimer := getNewElectionTimer()
 	rpcCtx, rpcCancel := context.WithCancel(ctx)
 	voteResponses := s.requestVotes(rpcCtx)
 	defer rpcCancel()
@@ -122,6 +169,10 @@ func (s *ElectionServer) doCandidate(ctx context.Context) {
 					return
 				}
 			}
+		case voteReq := <-s.rvRequestChan:
+			// Reject votes because I've already voted for myself.
+			vote := s.doCommonRV(voteReq, &votedFor)
+			s.rvResponseChan <- vote
 		case <-electionTimer:
 			// Restart the Candidate loop
 			s.state = CANDIDATE
@@ -190,10 +241,11 @@ func (s *ElectionServer) requestVotes(ctx context.Context) chan VoteResult {
 // Perform the follower loop, responding to RPC requests until an election
 // timeout occurs. Set state to CANDIDATE and return upon an election timeout.
 func (s *ElectionServer) doFollower(ctx context.Context) {
-	electionTimeout := time.After(getNewElectionTimeout(150, 300))
+	electionTimer := getNewElectionTimer()
+	var votedFor *NodeId
 	for {
 		select {
-		case <-electionTimeout:
+		case <-electionTimer:
 			log.Printf("Election timeout occurred. Switching to CANDIDATE state\n")
 			s.state = CANDIDATE
 			return
@@ -211,7 +263,7 @@ func (s *ElectionServer) doFollower(ctx context.Context) {
 
 			if Term(aeReq.GetTerm()) > s.term {
 				s.term = Term(aeReq.GetTerm())
-				s.votedFor = 0 // New term, can vote again
+				votedFor = nil // New term, can vote again
 			}
 			// TODO: need to implement the bottom
 			prev_log_index := LogIndex(aeReq.GetPrevLogIndex())
@@ -243,46 +295,30 @@ func (s *ElectionServer) doFollower(ctx context.Context) {
 			// if uint(aeReq.GetLeaderCommit()) > s.commitIndex {
 			// 	s.commitIndex = min(uint(aeReq.GetLeaderCommit()), s.logIndex)
 			// }
-			electionTimeout = time.After(getNewElectionTimeout(150, 300))
+			electionTimer = getNewElectionTimer()
 			s.aeResponseChan <- &raftpb.AppendEntriesResult{
 				Term:    uint64(s.term),
 				Success: true,
 			}
 		case rvReq := <-s.rvRequestChan:
-			if Term(rvReq.GetTerm()) < s.term {
-				log.Printf("Rejecting vote request from %v: term %d < current term %d\n", rvReq.GetCandidateId(), rvReq.GetTerm(), s.term)
-				s.rvResponseChan <- &raftpb.Vote{
-					Term:        uint64(s.term),
-					VoteGranted: false,
-				}
-				continue
-			}
-			voteGranted := false
-			if s.votedFor == 0 || s.votedFor == NodeId(rvReq.GetCandidateId()) {
-				candidateLogIndex := uint(rvReq.GetLastLogIndex())
-				if LogIndex(candidateLogIndex) >= s.logIndex {
-					voteGranted = true
-					candidateId := int((rvReq.GetCandidateId()))
-					s.votedFor = NodeId(candidateId)
-					electionTimeout = time.After(getNewElectionTimeout(150, 300))
-					log.Printf("Granting vote to %d for term %d\n", rvReq.GetCandidateId(), rvReq.GetTerm())
-				} else {
-					log.Printf("Denying vote to %d: candidate log not up-to-date", rvReq.GetCandidateId())
-				}
-			} else {
-				log.Printf("Denying vote to %d: already voted for %d", rvReq.GetCandidateId(), s.votedFor)
-			}
-			s.rvResponseChan <- &raftpb.Vote{
-				Term:        uint64(s.term),
-				VoteGranted: voteGranted,
-			}
+			vote := s.doCommonRV(rvReq, votedFor)
+			s.rvResponseChan <- vote
+			electionTimer = getNewElectionTimer()
 		}
 	}
 }
 
-// Get a new election timeout value between min ms and max ms
-func getNewElectionTimeout(min, max int) time.Duration {
-	return time.Duration(rand.Intn(max)+min) * time.Millisecond
+// Default election parameters. Change these to change election timeouts.
+const (
+	DEFAULT_MIN_TIMEOUT int = 1000
+	DEFAULT_MAX_TIMEOUT int = 1500
+)
+
+// Helper function, returns a time channel that expires after a random
+// election timeout
+func getNewElectionTimer() <-chan time.Time {
+	dur := time.Duration(rand.Intn(DEFAULT_MAX_TIMEOUT)+DEFAULT_MIN_TIMEOUT) * time.Millisecond
+	return time.After(dur)
 }
 
 // Handle a RequestVote call from a peer in the candidate state.
