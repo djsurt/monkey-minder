@@ -73,7 +73,12 @@ func (s *ElectionServer) doLoop(ctx context.Context) {
 }
 
 // Handle parts of AppendEntries request that are common to all node states.
-func (s *ElectionServer) doCommonAE(request *raftpb.AppendEntriesRequest) (response *raftpb.AppendEntriesResult) {
+// Returns an AppendEntriesResult and a boolean indicating whether the
+// requestor's term is higher than the server's and should thus transition to
+// follower.
+func (s *ElectionServer) doCommonAE(request *raftpb.AppendEntriesRequest) (response *raftpb.AppendEntriesResult, shouldAbdicate bool) {
+	shouldAbdicate = Term(request.Term) > s.term
+
 	response = &raftpb.AppendEntriesResult{
 		Term: uint64(s.term),
 	}
@@ -81,7 +86,7 @@ func (s *ElectionServer) doCommonAE(request *raftpb.AppendEntriesRequest) (respo
 	// §5.1: Reply false if term < currentTerm
 	if Term(request.Term) < s.term {
 		response.Success = false
-		return response
+		return response, shouldAbdicate
 	}
 
 	// TODO: Check that log[request.PrevLogIndex].Term == request.PrevLogTerm
@@ -95,7 +100,7 @@ func (s *ElectionServer) doCommonAE(request *raftpb.AppendEntriesRequest) (respo
 	// Append any new entries not already in the log
 
 	response.Success = true
-	return response
+	return response, shouldAbdicate
 }
 
 // Used for comparing most recent logs during RequestVotes
@@ -117,8 +122,12 @@ func (self *LastLog) AtLeastAsUpToDateAs(other *LastLog) bool {
 // Handle a RequestVote request. Accepts the requestor's VoteRequest struct and
 // a NodeId containing the value of the node the requestee voted for this cycle,
 // which may be null.
-// Returns the Vote response, and sets the value of votedFor.
-func (s *ElectionServer) doCommonRV(request *raftpb.VoteRequest, votedFor *NodeId) (vote *raftpb.Vote) {
+// Mutates the value of votedFor when a vote is granted.
+// Returns the Vote response and a boolean indicating whether the requestor's
+// term is higher than the server's and should thus transition to follower.
+func (s *ElectionServer) doCommonRV(request *raftpb.VoteRequest, votedFor *NodeId) (vote *raftpb.Vote, shouldAbdicate bool) {
+	shouldAbdicate = Term(request.Term) > s.term
+
 	vote = &raftpb.Vote{
 		Term: uint64(s.term),
 	}
@@ -126,7 +135,7 @@ func (s *ElectionServer) doCommonRV(request *raftpb.VoteRequest, votedFor *NodeI
 	// §5.1: Reply false if term < currentTerm
 	if Term(request.Term) < s.term {
 		vote.VoteGranted = false
-		return vote
+		return vote, shouldAbdicate
 	}
 
 	myLog := LastLog{
@@ -144,11 +153,11 @@ func (s *ElectionServer) doCommonRV(request *raftpb.VoteRequest, votedFor *NodeI
 		candidateLog.AtLeastAsUpToDateAs(&myLog) {
 		vote.VoteGranted = true
 		votedFor = (*NodeId)(&request.CandidateId)
-		return vote
+		return vote, shouldAbdicate
 	}
 
 	vote.VoteGranted = false
-	return vote
+	return vote, shouldAbdicate
 }
 
 func (s *ElectionServer) doLeader(ctx context.Context) {
@@ -193,7 +202,11 @@ func (s *ElectionServer) doCandidate(ctx context.Context) {
 			}
 		case voteReq := <-s.rvRequestChan:
 			// Reject votes because I've already voted for myself.
-			vote := s.doCommonRV(voteReq, &votedFor)
+			vote, shouldAbdicate := s.doCommonRV(voteReq, &votedFor)
+			if shouldAbdicate {
+				s.state = FOLLOWER
+				rpcCancel()
+			}
 			s.rvResponseChan <- vote
 		case <-electionTimer:
 			// Restart the Candidate loop
@@ -323,7 +336,7 @@ func (s *ElectionServer) doFollower(ctx context.Context) {
 				Success: true,
 			}
 		case rvReq := <-s.rvRequestChan:
-			vote := s.doCommonRV(rvReq, votedFor)
+			vote, _ := s.doCommonRV(rvReq, votedFor)
 			s.rvResponseChan <- vote
 			electionTimer = getNewElectionTimer()
 		}
