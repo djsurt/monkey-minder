@@ -72,8 +72,30 @@ func (s *ElectionServer) doLoop(ctx context.Context) {
 	}
 }
 
-func (s *ElectionServer) doCommonAE(request *raftpb.AppendEntriesRequest) raftpb.AppendEntriesResult {
-	panic("unimplemented")
+// Handle parts of AppendEntries request that are common to all node states.
+func (s *ElectionServer) doCommonAE(request *raftpb.AppendEntriesRequest) (response *raftpb.AppendEntriesResult) {
+	response = &raftpb.AppendEntriesResult{
+		Term: uint64(s.term),
+	}
+
+	// §5.1: Reply false if term < currentTerm
+	if Term(request.Term) < s.term {
+		response.Success = false
+		return response
+	}
+
+	// TODO: Check that log[request.PrevLogIndex].Term == request.PrevLogTerm
+	// §5.3: Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm
+
+	// TODO:
+	// §5.3: If an existing entry conflicts with a new one (same index but
+	// different terms), delete the existing entry and all that follow it
+
+	// TODO:
+	// Append any new entries not already in the log
+
+	response.Success = true
+	return response
 }
 
 // Used for comparing most recent logs during RequestVotes
