@@ -242,7 +242,9 @@ type VoteResult struct {
 	err     error
 }
 
-// Client side
+// For each peer node, call RequestVote rpc in parallel. Results are sent on
+// the VoteResult channel, which may be closed after the Candidate caller
+// achieves quorum or abdicates.
 func (s *ElectionServer) requestVotes(ctx context.Context) chan VoteResult {
 	voteResponses := make(chan VoteResult, len(s.peerConns))
 
