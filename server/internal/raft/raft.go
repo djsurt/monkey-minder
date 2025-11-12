@@ -114,7 +114,7 @@ func (self *LastLog) AtLeastAsUpToDateAs(other *LastLog) bool {
 	}
 }
 
-// Haddle a RequestVote request. Accepts the requestor's VoteRequest struct and
+// Handle a RequestVote request. Accepts the requestor's VoteRequest struct and
 // a NodeId containing the value of the node the requestee voted for this cycle,
 // which may be null.
 // Returns the Vote response, and sets the value of votedFor.
