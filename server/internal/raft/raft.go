@@ -161,7 +161,56 @@ func (s *ElectionServer) doCommonRV(request *raftpb.VoteRequest, votedFor *NodeI
 }
 
 func (s *ElectionServer) doLeader(ctx context.Context) {
-	panic("unimplemented")
+	// DEBUG: Just here to see that our leader election works.
+	// Remove me later
+	timer := time.After(30 * time.Second)
+
+	rpcCtx, rpcCancel := context.WithCancel(ctx)
+	defer rpcCancel()
+
+	// Create a channel to receive heartbeat responses on
+	responses := make(chan *raftpb.AppendEntriesResult)
+	// Assert myself as leader
+	s.sendHeartbeats(rpcCtx, responses)
+
+	// periodically send heartbeats
+	heartbeatTicker := time.NewTicker(1 * time.Second)
+	defer heartbeatTicker.Stop()
+
+	select {
+	case <-timer:
+		log.Printf("Reverting to follower...\n")
+		s.state = FOLLOWER
+		return
+	case <-responses:
+	case <-heartbeatTicker.C:
+		s.sendHeartbeats(rpcCtx, responses)
+	}
+}
+
+// Send AppendEntries heartbeats to all peers, asserting the caller as the
+// elected leader.
+func (s *ElectionServer) sendHeartbeats(ctx context.Context, responses chan<- *raftpb.AppendEntriesResult) {
+	heartbeatRequest := &raftpb.AppendEntriesRequest{
+		Term:         uint64(s.term),
+		LeaderId:     uint64(s.Id),
+		PrevLogIndex: uint64(s.logIndex), // TODO: Validate this is the correct value
+		PrevLogTerm:  uint64(s.term),     // TODO: use latest index from log
+		Entries:      nil,
+	}
+
+	for peerId, peerConn := range s.peerConns {
+		go func(responses chan<- *raftpb.AppendEntriesResult) {
+			log.Printf("Sending heartbeat to node %v\n", peerId)
+			response, err := peerConn.AppendEntries(ctx, heartbeatRequest)
+			if err != nil {
+				// If the requests were cancelled, just need to terminate.
+				log.Printf("Error in AppendEntries RPC: %v", err)
+				return
+			}
+			responses <- response
+		}(responses)
+	}
 }
 
 func (s *ElectionServer) doCandidate(ctx context.Context) {
