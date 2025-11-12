@@ -2,7 +2,6 @@ package raft
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -157,6 +156,7 @@ type VoteResult struct {
 	err     error
 }
 
+// Client side
 func (s *ElectionServer) requestVotes(ctx context.Context) chan VoteResult {
 	voteResponses := make(chan VoteResult, len(s.peerConns))
 
@@ -172,15 +172,7 @@ func (s *ElectionServer) requestVotes(ctx context.Context) chan VoteResult {
 			vote, err := peerConn.RequestVote(ctx, voteReq)
 			if err != nil {
 				// If the requests were cancelled, just need to terminate.
-				if errors.Is(err, context.Canceled) {
-					return
-				}
-				voteResult <- VoteResult{
-					peer:    peerId,
-					granted: false,
-					term:    s.term,
-					err:     err,
-				}
+				log.Printf("Error in RequestVotes RPC: %v", err)
 				return
 			}
 			voteResult <- VoteResult{
@@ -301,12 +293,8 @@ func (s *ElectionServer) RequestVote(
 	log.Printf("Vote request received from %d", req.GetCandidateId())
 	// DO NOT MODIFY REQUEST after sending
 	s.rvRequestChan <- req
-	select {
-	case vote := <-s.rvResponseChan:
-		return vote, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
+	vote := <-s.rvResponseChan
+	return vote, nil
 }
 
 // When in the leader state, make an an AppendEntries either to update a
