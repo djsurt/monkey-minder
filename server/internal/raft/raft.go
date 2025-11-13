@@ -72,12 +72,22 @@ func (s *ElectionServer) doLoop(ctx context.Context) {
 	}
 }
 
+// Simple helper for updating term.
+func (s *ElectionServer) updateTerm(newTerm Term) {
+	s.term = newTerm
+}
+
 // Handle parts of AppendEntries request that are common to all node states.
 // Returns an AppendEntriesResult and a boolean indicating whether the
 // requestor's term is higher than the server's and should thus transition to
 // follower.
-func (s *ElectionServer) doCommonAE(request *raftpb.AppendEntriesRequest) (response *raftpb.AppendEntriesResult, shouldAbdicate bool) {
-	shouldAbdicate = Term(request.Term) > s.term
+func (s *ElectionServer) doCommonAE(request *raftpb.AppendEntriesRequest) (response *raftpb.AppendEntriesResult, staleTerm bool) {
+	// §5.1: If RPC request or response contains term T > currentTerm:
+	// set currentTerm = T, convert to follower
+	staleTerm = Term(request.Term) > s.term
+	if staleTerm {
+		defer s.updateTerm(Term(request.Term))
+	}
 
 	response = &raftpb.AppendEntriesResult{
 		Term: uint64(s.term),
@@ -86,7 +96,7 @@ func (s *ElectionServer) doCommonAE(request *raftpb.AppendEntriesRequest) (respo
 	// §5.1: Reply false if term < currentTerm
 	if Term(request.Term) < s.term {
 		response.Success = false
-		return response, shouldAbdicate
+		return response, staleTerm
 	}
 
 	// TODO: Check that log[request.PrevLogIndex].Term == request.PrevLogTerm
@@ -100,7 +110,7 @@ func (s *ElectionServer) doCommonAE(request *raftpb.AppendEntriesRequest) (respo
 	// Append any new entries not already in the log
 
 	response.Success = true
-	return response, shouldAbdicate
+	return response, staleTerm
 }
 
 // Used for comparing most recent logs during RequestVotes
@@ -127,6 +137,9 @@ func (self *LastLog) AtLeastAsUpToDateAs(other *LastLog) bool {
 // term is higher than the server's and should thus transition to follower.
 func (s *ElectionServer) doCommonRV(request *raftpb.VoteRequest, votedFor *NodeId) (vote *raftpb.Vote, shouldAbdicate bool) {
 	shouldAbdicate = Term(request.Term) > s.term
+	if shouldAbdicate {
+		defer s.updateTerm(Term(request.Term))
+	}
 
 	vote = &raftpb.Vote{
 		Term: uint64(s.term),
@@ -137,9 +150,10 @@ func (s *ElectionServer) doCommonRV(request *raftpb.VoteRequest, votedFor *NodeI
 		vote.VoteGranted = false
 		return vote, shouldAbdicate
 	}
+	log.Printf("VOTE: My Term: %d, Candidate's Term: %d\n", s.term, request.Term)
 
 	myLog := LastLog{
-		Term:  s.term,
+		Term:  1,
 		Index: s.logIndex,
 	}
 	candidateLog := LastLog{
@@ -177,14 +191,24 @@ func (s *ElectionServer) doLeader(ctx context.Context) {
 	heartbeatTicker := time.NewTicker(1 * time.Second)
 	defer heartbeatTicker.Stop()
 
-	select {
-	case <-timer:
-		log.Printf("Reverting to follower...\n")
-		s.state = FOLLOWER
-		return
-	case <-responses:
-	case <-heartbeatTicker.C:
-		s.sendHeartbeats(rpcCtx, responses)
+	for {
+		select {
+		case <-timer:
+			log.Printf("Reverting to FOLLOWER...\n")
+			s.state = FOLLOWER
+			return
+		case <-responses:
+		case <-heartbeatTicker.C:
+			s.sendHeartbeats(rpcCtx, responses)
+		case aeReq := <-s.aeRequestChan:
+			aeRes, shouldAbdicate := s.doCommonAE(aeReq)
+			s.aeResponseChan <- aeRes
+			if shouldAbdicate {
+				log.Printf("Abdicating to FOLLOWER.\n")
+				s.state = FOLLOWER
+				return
+			}
+		}
 	}
 }
 
@@ -195,7 +219,7 @@ func (s *ElectionServer) sendHeartbeats(ctx context.Context, responses chan<- *r
 		Term:         uint64(s.term),
 		LeaderId:     uint64(s.Id),
 		PrevLogIndex: uint64(s.logIndex), // TODO: Validate this is the correct value
-		PrevLogTerm:  uint64(s.term),     // TODO: use latest index from log
+		PrevLogTerm:  1,                  // TODO: use latest index from log
 		Entries:      nil,
 	}
 
@@ -263,22 +287,12 @@ func (s *ElectionServer) doCandidate(ctx context.Context) {
 			log.Printf("Election timed out. Restarting CANDIDATE state...")
 			return
 		case aeReq := <-s.aeRequestChan:
-			peerTerm := Term(aeReq.GetTerm())
-			peerId := NodeId(aeReq.GetLeaderId())
+			res, shouldAbdicate := s.doCommonAE(aeReq)
+			s.aeResponseChan <- res
 
-			// Another leader won
-			if peerTerm >= s.term {
-				log.Printf("Received an AppendEntries message from new leader %d. Reverting to follower...\n", peerId)
-				// TODO: Handle AE request. For now, defering it to be handled by follower.
-				s.aeRequestChan <- aeReq
-				s.term = peerTerm
-			} else {
-				log.Printf("Rejecting AppendEntries from lower term node %d\n", peerId)
-				// TODO: Refactor to use doCommonAE when its implemented
-				s.aeResponseChan <- &raftpb.AppendEntriesResult{
-					Term:    uint64(s.term),
-					Success: false,
-				}
+			if shouldAbdicate {
+				s.state = FOLLOWER
+				return
 			}
 		}
 	}
@@ -329,66 +343,28 @@ func (s *ElectionServer) requestVotes(ctx context.Context) chan VoteResult {
 func (s *ElectionServer) doFollower(ctx context.Context) {
 	electionTimer := getNewElectionTimer()
 	var votedFor *NodeId
+
 	for {
 		select {
 		case <-electionTimer:
 			log.Printf("Election timeout occurred. Switching to CANDIDATE state\n")
 			s.state = CANDIDATE
 			return
+
 		case aeReq := <-s.aeRequestChan:
-			log.Printf("Follower recieved AppendEntries request from %v\n", aeReq.GetLeaderId())
-			// If the term in the request is less than our current term, return false
-			if Term(aeReq.GetTerm()) < s.term {
-				log.Printf("Rejecting AppendEntries request from %v: term %d < current term %d\n", aeReq.GetLeaderId(), aeReq.GetTerm(), s.term)
-				s.aeResponseChan <- &raftpb.AppendEntriesResult{
-					Term:    uint64(s.term),
-					Success: false,
-				}
-				continue
+			response, termChanged := s.doCommonAE(aeReq)
+			s.aeResponseChan <- response
+			if termChanged {
+				votedFor = nil
 			}
-
-			if Term(aeReq.GetTerm()) > s.term {
-				s.term = Term(aeReq.GetTerm())
-				votedFor = nil // New term, can vote again
-			}
-			// TODO: need to implement the bottom
-			prev_log_index := LogIndex(aeReq.GetPrevLogIndex())
-
-			// Uncomment me when you're ready to implement log
-			// prev_log_term := uint(aeReq.GetPrevLogTerm())
-
-			// TODO: Since we don't have the log implemented, have a simple check for rejecting (replace with actual log logic eventually)
-			//Placeholder logic for reply false if log doesn't contain an entry at prevLogIndex whose term matches prevLogTerm
-			if LogIndex(prev_log_index) > s.logIndex {
-				log.Printf("Rejecting prevLogIndex %d > current logIndex %d\n", prev_log_index, s.logIndex)
-				s.aeResponseChan <- &raftpb.AppendEntriesResult{
-					Term:    uint64(s.term),
-					Success: false,
-				}
-				continue
-			}
-
-			//TODO: Delete conflicting entries
-			// If an existing entry conflicts with a new one (same index, but dufferent terms)
-			// delete the existing entry and all that follow it
-
-			//TODO: Append new entries
-			// for _, entry := range aeReq.GetEntries() {
-			// 	s.log.Append(entry)
-			// }
-
-			//TODO: Update the commit index
-			// if uint(aeReq.GetLeaderCommit()) > s.commitIndex {
-			// 	s.commitIndex = min(uint(aeReq.GetLeaderCommit()), s.logIndex)
-			// }
 			electionTimer = getNewElectionTimer()
-			s.aeResponseChan <- &raftpb.AppendEntriesResult{
-				Term:    uint64(s.term),
-				Success: true,
-			}
+
 		case rvReq := <-s.rvRequestChan:
-			vote, _ := s.doCommonRV(rvReq, votedFor)
+			vote, termChanged := s.doCommonRV(rvReq, votedFor)
 			s.rvResponseChan <- vote
+			if termChanged {
+				votedFor = nil
+			}
 			electionTimer = getNewElectionTimer()
 		}
 	}
@@ -396,8 +372,8 @@ func (s *ElectionServer) doFollower(ctx context.Context) {
 
 // Default election parameters. Change these to change election timeouts.
 const (
-	DEFAULT_MIN_TIMEOUT int = 1000
-	DEFAULT_MAX_TIMEOUT int = 1500
+	DEFAULT_MIN_TIMEOUT int = 1500
+	DEFAULT_MAX_TIMEOUT int = 2000
 )
 
 // Helper function, returns a time channel that expires after a random
