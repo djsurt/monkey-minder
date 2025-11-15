@@ -167,6 +167,7 @@ func (s *ElectionServer) doCommonRV(request *raftpb.VoteRequest, votedFor *NodeI
 		candidateLog.AtLeastAsUpToDateAs(&myLog) {
 		vote.VoteGranted = true
 		votedFor = (*NodeId)(&request.CandidateId)
+		log.Printf("Granting vote to CANDIDATE %d\n", request.CandidateId)
 		return vote, shouldAbdicate
 	}
 
@@ -188,7 +189,7 @@ func (s *ElectionServer) doLeader(ctx context.Context) {
 	s.sendHeartbeats(rpcCtx, responses)
 
 	// periodically send heartbeats
-	heartbeatTicker := time.NewTicker(1 * time.Second)
+	heartbeatTicker := time.NewTicker(500 * time.Millisecond)
 	defer heartbeatTicker.Stop()
 
 	for {
@@ -223,13 +224,13 @@ func (s *ElectionServer) sendHeartbeats(ctx context.Context, responses chan<- *r
 		Entries:      nil,
 	}
 
-	for peerId, peerConn := range s.peerConns {
+	for _, peerConn := range s.peerConns {
 		go func(responses chan<- *raftpb.AppendEntriesResult) {
-			log.Printf("Sending heartbeat to node %v\n", peerId)
+			// log.Printf("Sending heartbeat to node %v\n", peerId)
 			response, err := peerConn.AppendEntries(ctx, heartbeatRequest)
 			if err != nil {
 				// If the requests were cancelled, just need to terminate.
-				log.Printf("Error in AppendEntries RPC: %v", err)
+				//log.Printf("Error in AppendEntries RPC: %v", err)
 				return
 			}
 			responses <- response
@@ -256,7 +257,7 @@ func (s *ElectionServer) doCandidate(ctx context.Context) {
 
 				// Check for quorum
 				if voteCount > (len(s.peerConns)+1)/2 {
-					log.Printf("Asserting myself as leader.\n")
+					log.Printf("Asserting myself as LEADER.\n")
 					s.state = LEADER
 					rpcCancel()
 					return
@@ -267,7 +268,7 @@ func (s *ElectionServer) doCandidate(ctx context.Context) {
 				}
 
 				if vote.term > s.term {
-					log.Printf("Received more recent term from node %d. Reverting to follower...\n", vote.peer)
+					log.Printf("Received more recent term from node %d. Reverting to FOLLOWER...\n", vote.peer)
 					s.term = vote.term
 					s.state = FOLLOWER
 					return
@@ -277,6 +278,7 @@ func (s *ElectionServer) doCandidate(ctx context.Context) {
 			// Reject votes because I've already voted for myself.
 			vote, shouldAbdicate := s.doCommonRV(voteReq, &votedFor)
 			if shouldAbdicate {
+				log.Printf("Received vote request w/ more recent term from node %d. Reverting to FOLLOWER...\n", voteReq.CandidateId)
 				s.state = FOLLOWER
 				rpcCancel()
 			}
@@ -403,7 +405,7 @@ func (s *ElectionServer) AppendEntries(
 	ctx context.Context,
 	req *raftpb.AppendEntriesRequest,
 ) (*raftpb.AppendEntriesResult, error) {
-	log.Printf("AppendEntries request received from %d", req.GetLeaderId())
+	//log.Printf("AppendEntries request received from %d", req.GetLeaderId())
 	// DO NOT MODIFY REQUEST after sending
 	s.aeRequestChan <- req
 	res := <-s.aeResponseChan
