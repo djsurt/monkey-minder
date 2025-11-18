@@ -6,6 +6,7 @@ import (
 	"log"
 	"math/rand"
 	"net"
+	"sync"
 	"time"
 
 	raftpb "github.com/djsurt/monkey-minder/server/proto/raft"
@@ -246,7 +247,6 @@ func (s *ElectionServer) doCandidate(ctx context.Context) {
 	rpcCtx, rpcCancel := context.WithCancel(ctx)
 	voteResponses := s.requestVotes(rpcCtx)
 	defer rpcCancel()
-	defer close(voteResponses)
 
 	for {
 		select {
@@ -310,7 +310,7 @@ type VoteResult struct {
 // For each peer node, call RequestVote rpc in parallel. Results are sent on
 // the VoteResult channel, which may be closed after the Candidate caller
 // achieves quorum or abdicates.
-func (s *ElectionServer) requestVotes(ctx context.Context) chan VoteResult {
+func (s *ElectionServer) requestVotes(ctx context.Context) <-chan VoteResult {
 	voteResponses := make(chan VoteResult, len(s.peerConns))
 
 	voteReq := &raftpb.VoteRequest{
@@ -320,22 +320,32 @@ func (s *ElectionServer) requestVotes(ctx context.Context) chan VoteResult {
 		LastLogTerm:  1, // TODO: Use the latest log index from log module
 	}
 
-	for peerId, peerConn := range s.peerConns {
-		go func(voteResult chan<- VoteResult) {
-			vote, err := peerConn.RequestVote(ctx, voteReq)
-			if err != nil {
-				// If the requests were cancelled, just need to terminate.
-				log.Printf("Error in RequestVotes RPC: %v", err)
-				return
-			}
-			voteResult <- VoteResult{
-				peer:    peerId,
-				granted: vote.GetVoteGranted(),
-				term:    Term(vote.GetTerm()),
-				err:     err,
-			}
-		}(voteResponses)
-	}
+	go func() {
+		var wg sync.WaitGroup
+		for peerId, peerConn := range s.peerConns {
+			wg.Go(func() {
+				vote, err := peerConn.RequestVote(ctx, voteReq)
+
+				voteResult := VoteResult{
+					peer:    peerId,
+					granted: vote.GetVoteGranted(),
+					term:    Term(vote.GetTerm()),
+					err:     err,
+				}
+
+				// Handle response appropriately
+				select {
+				case <-ctx.Done():
+					return
+				default:
+					voteResponses <- voteResult
+				}
+			})
+		}
+		// Wait for all responses to be received
+		wg.Wait()
+		close(voteResponses)
+	}()
 
 	return voteResponses
 }
