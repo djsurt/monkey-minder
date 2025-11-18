@@ -190,7 +190,7 @@ func (s *ElectionServer) doLeader(ctx context.Context) {
 	s.sendHeartbeats(rpcCtx, responses)
 
 	// periodically send heartbeats
-	heartbeatTicker := time.NewTicker(500 * time.Millisecond)
+	heartbeatTicker := time.NewTicker(time.Duration(DEFAULT_HEARTBEAT_TIMEOUT) * time.Millisecond)
 	defer heartbeatTicker.Stop()
 
 	for {
@@ -384,14 +384,17 @@ func (s *ElectionServer) doFollower(ctx context.Context) {
 
 // Default election parameters. Change these to change election timeouts.
 const (
-	DEFAULT_MIN_TIMEOUT int = 1500
-	DEFAULT_MAX_TIMEOUT int = 2000
+	// Params recommended by Ongaro & Ousterhout, p. 14
+	DEFAULT_MIN_TIMEOUT       int = 1500
+	DEFAULT_MAX_TIMEOUT       int = 2000
+	DEFAULT_HEARTBEAT_TIMEOUT int = DEFAULT_MIN_TIMEOUT / 2
 )
 
 // Helper function, returns a time channel that expires after a random
 // election timeout
 func getNewElectionTimer() <-chan time.Time {
-	dur := time.Duration(rand.Intn(DEFAULT_MAX_TIMEOUT)+DEFAULT_MIN_TIMEOUT) * time.Millisecond
+	timeout_range := DEFAULT_MAX_TIMEOUT - DEFAULT_MIN_TIMEOUT
+	dur := time.Duration(rand.Intn(timeout_range)+DEFAULT_MIN_TIMEOUT) * time.Millisecond
 	return time.After(dur)
 }
 
