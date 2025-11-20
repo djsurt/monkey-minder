@@ -111,3 +111,31 @@ func (t *Tree) Delete(p string) error {
 	delete(parent.Children, name)
 	return nil
 }
+
+// Deep copy of the tree
+func (t *Tree) Clone() *Tree {
+	return &Tree{
+		root: cloneNode(t.root),
+	}
+}
+
+// cloneNode recursively clones a node and all its children
+func cloneNode(node *ZNode) *ZNode {
+	if node == nil {
+		return nil
+	}
+
+	// Create new node with copied data
+	newNode := &ZNode{
+		Name:     node.Name,
+		Data:     node.Data,
+		Children: make(map[string]*ZNode),
+	}
+
+	// Clone all the children recursively
+	for key, child := range node.Children {
+		newNode.Children[key] = cloneNode(child)
+	}
+
+	return newNode
+}
