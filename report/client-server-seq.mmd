@@ -1,0 +1,41 @@
+```mermaid
+sequenceDiagram
+    box Client
+        participant Client
+        participant ZKClientAPI as Client API
+    end
+    box ZooKeeper Cluster
+        participant ZKFollower as Local Replica
+        participant Raft as Raft Consensus Layer
+        participant ZKLeader as Leader Node
+    end
+
+    %% Normal Read
+    Client->>ZKClientAPI: Read API call
+    ZKClientAPI->>ZKFollower: Request read
+    ZKFollower->>ZKClientAPI: Local immediate read
+    ZKClientAPI->>Client: Data
+
+    opt Watch set
+        ZKLeader->>ZKFollower: Node updated
+        ZKFollower->>ZKClientAPI: Watch notification
+        ZKClientAPI->>Client: Callback triggered/update sent
+    end
+
+
+    %% Write/Delete (requires forwarding and consensus)
+    Client->>ZKClientAPI: Write/Delete request
+    ZKClientAPI->>ZKFollower: Forward Write/Delete
+    ZKFollower->>ZKLeader: Forward to Leader
+    ZKLeader->>Raft: Initiate Consensus
+    Raft-->>ZKLeader: Consensus Result
+    ZKLeader-->>ZKFollower: Write/Delete Result
+    ZKFollower-->>ZKClientAPI: Write/Delete Result
+    ZKClientAPI-->>Client: Result
+
+    opt Watch set
+        ZKLeader->>ZKFollower: Node updated
+        ZKFollower->>ZKClientAPI: Watch notification
+        ZKClientAPI->>Client: Callback triggered/update sent
+    end
+```
