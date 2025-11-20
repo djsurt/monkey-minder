@@ -4,6 +4,8 @@ import (
 	"errors"
 	"path"
 	"strings"
+
+	raftpb "github.com/djsurt/monkey-minder/server/proto/raft"
 )
 
 type ZNode struct {
@@ -138,4 +140,17 @@ func cloneNode(node *ZNode) *ZNode {
 	}
 
 	return newNode
+}
+
+func (t *Tree) ApplyEntry(entry *raftpb.LogEntry) error {
+	switch entry.Kind {
+	case raftpb.LogEntryType_CREATE:
+		return t.Create(entry.TargetPath, entry.Value)
+	case raftpb.LogEntryType_UPDATE:
+		return t.Update(entry.TargetPath, entry.Value)
+	case raftpb.LogEntryType_DELETE:
+		return t.Delete(entry.TargetPath)
+	default:
+		panic("should be unreachable (modification type must have been invalid)")
+	}
 }

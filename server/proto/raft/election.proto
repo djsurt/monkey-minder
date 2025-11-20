@@ -3,6 +3,8 @@ package raft;
 
 option go_package = "github.com/djsurt/monkey-minder/server/proto/raftpb";
 
+import "server/proto/raft/log.proto";
+
 message VoteRequest {
   uint64 term = 1;
   uint64 candidateId = 2;
@@ -20,11 +22,7 @@ message AppendEntriesRequest {
   uint64 leaderId = 2;
   uint64 prevLogIndex = 3;
   uint64 prevLogTerm = 4;
-  // TODO: Implement me properly.
-  message Entry {
-    string message = 1;
-  }
-  repeated Entry entries = 5;
+  repeated LogEntry entries = 5;
   uint64 leaderCommit = 6;
 }
 
