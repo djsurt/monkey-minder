@@ -133,7 +133,7 @@ func (s *RaftServer) doLeader(ctx context.Context) {
 					entry, err := s.log.GetEntryAt(idx)
 					if err != nil {
 						// this should never happen and if it does we've seriously messed up the index handling logic
-						panic(err)
+						log.Panicf("Log index logic error: %v", err)
 					}
 					entriesToSend[idx-toSendFirst] = *entry
 				}
