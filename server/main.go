@@ -10,13 +10,7 @@ import (
 	"strings"
 
 	"github.com/djsurt/monkey-minder/server/internal/raft"
-	raftpb "github.com/djsurt/monkey-minder/server/proto/raft"
 )
-
-type ElectionServer struct {
-	raftpb.UnimplementedElectionServer
-	clientID int
-}
 
 func main() {
 	id := flag.Int("id", 0, "The node id to use. This should match a name in the cluster config")
@@ -52,10 +46,10 @@ func main() {
 	// Filter myself from peers
 	delete(clusterMembers, nodeId)
 
-	electionServer := raft.NewElectionServer(port, nodeId, clusterMembers)
+	raftServer := raft.NewRaftServer(port, nodeId, clusterMembers)
 	// Start the server
-	fmt.Printf("Election server listening on port %d...\n", port)
-	log.Fatal(electionServer.Serve())
+	fmt.Printf("Raft server listening on port %d...\n", port)
+	log.Fatal(raftServer.Serve())
 }
 
 func parseClusterConfig(configPath string) (peers map[raft.NodeId]string, err error) {

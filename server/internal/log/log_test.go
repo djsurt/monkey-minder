@@ -11,8 +11,9 @@ type simpleEntry struct {
 }
 type simpleSnapshot map[string]int
 
-func (snapshot simpleSnapshot) ApplyEntry(entry simpleEntry) {
+func (snapshot simpleSnapshot) ApplyEntry(entry simpleEntry) error {
 	snapshot[entry.k] = entry.v
+	return nil
 }
 
 func (snapshot simpleSnapshot) Clone() simpleSnapshot {
@@ -28,22 +29,32 @@ func assertEq[V comparable](t *testing.T, val V, expected V) {
 
 func TestLog(t *testing.T) {
 	log := NewLog(make(simpleSnapshot), 0)
+	assertEq(t, log.IndexBeforeFirst(), Index(0))
+	assertEq(t, log.IndexAfterLast(), Index(1))
 
 	log.Append(simpleEntry{"a", 1})
 	assertEq(t, (*log.Latest())["a"], 1)
 	assertEq(t, log.LenLogical(), 1)
+	assertEq(t, log.IndexBeforeFirst(), Index(0))
+	assertEq(t, log.IndexAfterLast(), Index(2))
 
 	log.Append(simpleEntry{"a", 2})
 	assertEq(t, (*log.Latest())["a"], 2)
 	assertEq(t, log.LenLogical(), 2)
+	assertEq(t, log.IndexBeforeFirst(), Index(0))
+	assertEq(t, log.IndexAfterLast(), Index(3))
 
 	log.Append(simpleEntry{"b", 3})
 	assertEq(t, (*log.Latest())["a"], 2)
 	assertEq(t, (*log.Latest())["b"], 3)
 	assertEq(t, log.LenLogical(), 3)
+	assertEq(t, log.IndexBeforeFirst(), Index(0))
+	assertEq(t, log.IndexAfterLast(), Index(4))
 
 	log.SquashFirstN(1)
 	assertEq(t, (*log.Latest())["a"], 2)
 	assertEq(t, log.LenLogical(), 3)
 	assertEq(t, log.LenActual(), 2)
+	assertEq(t, log.IndexBeforeFirst(), Index(1))
+	assertEq(t, log.IndexAfterLast(), Index(4))
 }
