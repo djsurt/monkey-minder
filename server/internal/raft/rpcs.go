@@ -67,8 +67,14 @@ func (s *RaftServer) doCommonAE(request *raftpb.AppendEntriesRequest) (response 
 		return response, staleTerm
 	}
 
-	// TODO: Check that log[request.PrevLogIndex].Term == request.PrevLogTerm
 	// §5.3: Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm
+	prevLogIdx := raftlog.Index(request.PrevLogIndex)
+	prevLogEntry, err := s.log.GetEntryAt(prevLogIdx)
+	// Follower's log doesn't match leader's
+	if err != nil || (*prevLogEntry).Term != request.PrevLogTerm {
+		response.Success = false
+		return response, false
+	}
 
 	// TODO:
 	// §5.3: If an existing entry conflicts with a new one (same index but
