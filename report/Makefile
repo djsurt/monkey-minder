@@ -5,7 +5,7 @@ DIAGRAMS = $(wildcard *.mmd)
 COMPILED_DIAGRAMS = $(addsuffix .pdf, $(DIAGRAMS))
 
 report.pdf: $(COMPILED_DIAGRAMS) report.tex
-	pdflatex report.tex
+	pdflatex -interaction nonstopmode report.tex
 
 
 .PHONY: clean
