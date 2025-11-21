@@ -31,7 +31,7 @@ message AppendEntriesResult {
   bool success = 2;
 }
 
-service Election {
+service Raft {
   rpc RequestVote (VoteRequest) returns (Vote);
   rpc AppendEntries (AppendEntriesRequest) returns (AppendEntriesResult);
 }

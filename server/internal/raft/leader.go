@@ -9,7 +9,7 @@ import (
 	raftpb "github.com/djsurt/monkey-minder/server/proto/raft"
 )
 
-func (s *ElectionServer) doLeader(ctx context.Context) {
+func (s *RaftServer) doLeader(ctx context.Context) {
 	// TODO: "If command received from client: append entry to local log, respond after entry applied to state machine (§5.3)"
 	// TODO: "If there exists an N such that N > commitIndex, a majority of matchIndex[i] ≥ N, and log[N].term == currentTerm: set commitIndex = N (§5.3, §5.4)."
 
@@ -165,7 +165,7 @@ func (s *ElectionServer) doLeader(ctx context.Context) {
 				Entries:      entriesToSend,
 			}
 
-			go func(peerConn raftpb.ElectionClient, responses chan<- incomingAEResponse) {
+			go func(peerConn raftpb.RaftClient, responses chan<- incomingAEResponse) {
 				response, err := peerConn.AppendEntries(rpcCtx, req)
 				if err != nil {
 					return

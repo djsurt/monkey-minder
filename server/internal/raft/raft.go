@@ -29,15 +29,15 @@ const (
 	LEADER
 )
 
-type ElectionServer struct {
-	raftpb.UnimplementedElectionServer
+type RaftServer struct {
+	raftpb.UnimplementedRaftServer
 	Port           int
 	Id             NodeId
 	peers          map[NodeId]string
 	state          NodeState
 	grpcServer     *grpc.Server
 	listener       net.Conn
-	peerConns      map[NodeId]raftpb.ElectionClient
+	peerConns      map[NodeId]raftpb.RaftClient
 	term           Term
 	log            Log
 	aeRequestChan  chan *raftpb.AppendEntriesRequest
@@ -46,8 +46,8 @@ type ElectionServer struct {
 	rvResponseChan chan *raftpb.Vote
 }
 
-func NewElectionServer(port int, id NodeId, peers map[NodeId]string) *ElectionServer {
-	return &ElectionServer{
+func NewRaftServer(port int, id NodeId, peers map[NodeId]string) *RaftServer {
+	return &RaftServer{
 		Port:  port,
 		Id:    id,
 		peers: peers,
@@ -64,7 +64,7 @@ func NewElectionServer(port int, id NodeId, peers map[NodeId]string) *ElectionSe
 
 // Run the state machine continuously, delegating to the appropriate node
 // state handler loop.
-func (s *ElectionServer) doLoop(ctx context.Context) {
+func (s *RaftServer) doLoop(ctx context.Context) {
 	for {
 		switch s.state {
 		case FOLLOWER:
@@ -78,7 +78,7 @@ func (s *ElectionServer) doLoop(ctx context.Context) {
 }
 
 // Simple helper for updating term.
-func (s *ElectionServer) updateTerm(newTerm Term) {
+func (s *RaftServer) updateTerm(newTerm Term) {
 	s.term = newTerm
 }
 
@@ -86,7 +86,7 @@ func (s *ElectionServer) updateTerm(newTerm Term) {
 // Returns an AppendEntriesResult and a boolean indicating whether the
 // requestor's term is higher than the server's and should thus transition to
 // follower.
-func (s *ElectionServer) doCommonAE(request *raftpb.AppendEntriesRequest) (response *raftpb.AppendEntriesResult, staleTerm bool) {
+func (s *RaftServer) doCommonAE(request *raftpb.AppendEntriesRequest) (response *raftpb.AppendEntriesResult, staleTerm bool) {
 	log.Printf("incoming AE: %v", request)
 
 	// §5.1: If RPC request or response contains term T > currentTerm:
@@ -142,7 +142,7 @@ func (self *LastLog) AtLeastAsUpToDateAs(other *LastLog) bool {
 // Mutates the value of votedFor when a vote is granted.
 // Returns the Vote response and a boolean indicating whether the requestor's
 // term is higher than the server's and should thus transition to follower.
-func (s *ElectionServer) doCommonRV(request *raftpb.VoteRequest, votedFor *NodeId) (vote *raftpb.Vote, shouldAbdicate bool) {
+func (s *RaftServer) doCommonRV(request *raftpb.VoteRequest, votedFor *NodeId) (vote *raftpb.Vote, shouldAbdicate bool) {
 	shouldAbdicate = Term(request.Term) > s.term
 	if shouldAbdicate {
 		defer s.updateTerm(Term(request.Term))
@@ -186,7 +186,7 @@ func (s *ElectionServer) doCommonRV(request *raftpb.VoteRequest, votedFor *NodeI
 	return vote, shouldAbdicate
 }
 
-func (s *ElectionServer) doCandidate(ctx context.Context) {
+func (s *RaftServer) doCandidate(ctx context.Context) {
 	s.term += 1
 	votedFor := s.Id
 	voteCount := 1
@@ -257,7 +257,7 @@ type VoteResult struct {
 // For each peer node, call RequestVote rpc in parallel. Results are sent on
 // the VoteResult channel, which may be closed after the Candidate caller
 // achieves quorum or abdicates.
-func (s *ElectionServer) requestVotes(ctx context.Context) <-chan VoteResult {
+func (s *RaftServer) requestVotes(ctx context.Context) <-chan VoteResult {
 	voteResponses := make(chan VoteResult, len(s.peerConns))
 
 	latestEntry, _ := s.log.GetEntryLatest()
@@ -306,7 +306,7 @@ func (s *ElectionServer) requestVotes(ctx context.Context) <-chan VoteResult {
 
 // Perform the follower loop, responding to RPC requests until an election
 // timeout occurs. Set state to CANDIDATE and return upon an election timeout.
-func (s *ElectionServer) doFollower(ctx context.Context) {
+func (s *RaftServer) doFollower(ctx context.Context) {
 	electionTimer := getNewElectionTimer()
 	var votedFor *NodeId
 
@@ -353,7 +353,7 @@ func getNewElectionTimer() <-chan time.Time {
 }
 
 // Handle a RequestVote call from a peer in the candidate state.
-func (s *ElectionServer) RequestVote(
+func (s *RaftServer) RequestVote(
 	ctx context.Context,
 	req *raftpb.VoteRequest,
 ) (*raftpb.Vote, error) {
@@ -368,7 +368,7 @@ func (s *ElectionServer) RequestVote(
 // follower's log, or to send a heartbeat to the follower.
 // When in the follower state, respond to AppendEntries requests and udpate
 // election timeout.
-func (s *ElectionServer) AppendEntries(
+func (s *RaftServer) AppendEntries(
 	ctx context.Context,
 	req *raftpb.AppendEntriesRequest,
 ) (*raftpb.AppendEntriesResult, error) {
@@ -388,7 +388,7 @@ func (e *ServerClosed) Error() string {
 // Serve the ElectionServer RPC interface. Returns an error if any of the
 // setup steps fail, or if the grpcServer returns an error due to a
 // listener.accept() failure.
-func (s *ElectionServer) Serve() error {
+func (s *RaftServer) Serve() error {
 	// Try to create the TCP socket.
 	listener, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", s.Port))
 	if err != nil {
@@ -398,7 +398,7 @@ func (s *ElectionServer) Serve() error {
 
 	// Create & register gRPC server
 	s.grpcServer = grpc.NewServer()
-	raftpb.RegisterElectionServer(s.grpcServer, s)
+	raftpb.RegisterRaftServer(s.grpcServer, s)
 
 	// Create peer connections
 	err = s.connectToPeers()
@@ -421,18 +421,18 @@ func (s *ElectionServer) Serve() error {
 }
 
 // Connect to all peers for RPCs
-func (s *ElectionServer) connectToPeers() error {
+func (s *RaftServer) connectToPeers() error {
 	// Set default DialOptions once
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
-	peerConns := make(map[NodeId]raftpb.ElectionClient)
+	peerConns := make(map[NodeId]raftpb.RaftClient)
 	for peer, addr := range s.peers {
 		conn, err := grpc.NewClient(addr, opts...)
 		if err != nil {
 			return err
 		}
-		client := raftpb.NewElectionClient(conn)
+		client := raftpb.NewRaftClient(conn)
 		peerConns[peer] = client
 	}
 
