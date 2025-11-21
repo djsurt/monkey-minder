@@ -1,3 +1,5 @@
+// This file contains the Leader loop and any utilites for implementing the
+// Leader lifecycle.
 package raft
 
 import (
