@@ -1,5 +1,6 @@
 \documentclass[journal,twocolumn,american]{IEEEtran}
 \usepackage[T1]{fontenc}
+\usepackage{lmodern}
 \usepackage[utf8]{inputenc}
 \usepackage{babel}
 \usepackage[pdfusetitle,
@@ -9,6 +10,7 @@
 \usepackage{lipsum}
 \usepackage{graphicx}
 \usepackage{calc}
+\renewcommand{\ttdefault}{cmtt}
 
 % via https://stackoverflow.com/a/123184/8762161
 \newlength{\mmdfigureWidthTmp}
@@ -41,11 +43,49 @@ Dhananjay~Surti~(0123456789,~dhananjay.surti@sjsu.edu)%
 
 
 \section{Prior Art}
-Hello
-\lipsum[1]
+Zookeeper achieves consensus through the Zookeeper Atomic Broadcast (Zab)
+protocol, which is a leader-based atomic broadcast system designed to ensure
+consistent state replication across nodes [1]. Zab shares some conceptual similarities
+with the Raft algorithm, such as leader election and log replication, but was developed
+independently [3]. Since Raft has become widely adopted and is designed to be
+understandable, we will elect to use Raft to provide both leader election and
+consistency in our implementation.
+Much research has been done to improve the performance and consistency of Raft
+under failure scenarios. For instance, in [4] Kim et al. explored improving leader-based
+consensus algorithms such as Raft using federated learning to enhance stability and
+performance. Furthermore, Liu et. al has suggested improvements in both performance
+and strict consistency guarantees over the original Raft algorithm by requiring strong
+consistency of followers logs [5]. They show that their accelerated log backtracking Raft
+algorithm can reduce the number of RPCs required to resolve log conflicts under
+multiple leader election failure scenarios [5]. Similarly, Liu et Al. (2023) propose an
+optimized Raft algorithm (SS-Raft) that incorporates snapshot-based log compression
+to reduce excessive log growth during replication and improve recovery under unreliable
+networks and churn failures [6]. Finally, Paznikov et. al proposes a leaderless approach
+to atomic broadcast using the actor model of concurrency [7]; while the actor model
+approach is appealing to us, we think designing a ZooKeeper service around the actor
+model is a more appropriate topic for subsequent research projects.
+Building on these ideas, our project will use Raft atomic broadcast to achieve strong
+consistency among replicas. In particular, we draw inspiration from recent research
+such as [8], which demonstrates that atomic broadcast can be achieved efficiently
+through a reduction from multivalued Byzantine Agreement (MBA) while avoiding heavy
+cryptographic signatures, and from [9] S. Mane et. al which proposes additions to
+ZooKeeper which give it better resilience against Byzantine faults.
 
 \section{Goals and Motivation}
-\lipsum[1]
+Our project is a re-implementation of a subset of Zookeeper's core functionality using
+Golang and gRPC. Specifically, we implemented a tree-based data store service that
+can be replicated across an ensemble of nodes. The server uses Raft leader election
+algorithm to decide on a leader node. This leader node is responsible for ordering
+writes and using quorum based atomic broadcast to ensure writes are processed
+transactionally by all replicas.
+
+This problem is interesting as ZooKeeper has been a fundamental building block of many
+distributed systems in the industry, including Apache's Hadoop, Spark, and Kafka projects,
+as well as Pinterest, Yahoo!, and Facebook [2 from the proposal]. By implementing this system ourselves,
+we gained a deep understanding of the core issues of wait-free coordination, replication,
+consistency, and leader election. Furthermore, now that the service is built, we have an implementation
+with which we can build less primitive distributed systems and more confidence in our abilities to handle
+the fundamental issues of fault tolerance, consistency, and consensus.
 
 \section{Challenges Addressed}
 \lipsum[1]
@@ -82,21 +122,83 @@ The client layer provides several endpoints for interacting with the system. The
 The consensus layer is built on the Raft protocol, replacing Zookeeper's Zab protocol. It operates with three distinct node states: Follower, Leader, and Candidate.
 Each node runs a state machine that delegates tasks to the appropriate handler based on its current role in the cluster.
 
-ElectionServer:
-The ElectionServer represents a node in the Raft cluster. It manages the node's identity and network connections to peers via gRPC. It tracks the current term number and log index to monitor cluster progress and maintains state information, indicating whether the node is a FOLLOWER, CANDIDATE, or LEADER.
-Communication channels are used to handle AppendEntries and RequestVote RPCs.
+\subsubsection{Process Models and Types}
+Our Raft node is implemented by \texttt{ElectionServer}, which contains the node identity (\texttt{Id}), transport configuration (\texttt{Port}, \texttt{peers}),
+local state (\texttt{state}) $\in$ \{\texttt{FOLLOWER}, \texttt{CANDIDATE}, \texttt{LEADER}\}, and protocol variables (\texttt{term} and \texttt{logIndex}). We define
+strongly-types aliases for clairty:
+\texttt{Term} and \texttt{LogIndex} (\texttt{uint64}), and \texttt{NodeId} (\texttt{uint64}).
 
-Election Algorithm:
-The election algorithm governs the behavior of nodes in the cluster:
+The server exposes the Raft RPC surface through the gRPC (service \texttt{ElectionServer}).
+Inbound RPCs are demultiplexed into internal channels:
+\texttt{aeRequestChan/aeResponseChan} for AppendEntries and \texttt{rvRequestChan/rvResponseChan} for RequestVote. The channel-based
+boundary separates networking from the core state machine.
 
-\textbf{Follower State}: Nodes start as followers, responding to RPCs from leaders and candidates. They use an election timer, randomized between 1500-2000ms, to transition to the candidate state if no heartbeat is received from the leader.
+\subsubsection{Lifecycle and Event Loop}
+The method \texttt{Serve()} performs three responsibilities:
+(i) create a TCP listener on \texttt{localhost:\$\{Port\}},
+(ii) construct and register a gRPC server that binds the Raft RPC handlers,
+and (iii) spawns the node's control loop \texttt{doLoop(ctx)} which drives the Raft state machine.
 
-\textbf{Candidate State}: When a follower’s election timer expires, it increments its term and requests votes from all peers. The candidate votes for itself and waits for responses. If it receives votes from a majority, it becomes the leader. If it receives an AppendEntries RPC with a term greater than or equal to its own, it reverts to a follower. If the election times out without achieving a quorum, the candidate restarts the election with a new term.
+\texttt{doLoop} runs forever, dispatching to one of \texttt{doFollower}, \texttt{doCandidate}, or 
+\texttt{doLeader} based on \texttt{state}. Each state handler is a blocking loop selecting over protocol
+events (RPCs) and timers, and exits only when a state transition occurs (e.g. timeout, quorum win, or term regression). This makes sure 
+that only one state handler is active at a time.
 
-\textbf{Vote Granting Logic}: Nodes grant votes if they haven’t voted for another candidate in the current term and if the candidate’s log is at least as up-to-date as their own. This ensures that only nodes with complete logs can become leaders.
+\subsubsection{Timers and Failure Detector (Raft \S5.2)}
+We implement a randomized election timeout using
+\texttt{getNewElectionTimer()}, which draws uniformly from
+$[1500,2000]\,$ms. The node resets this timer on any leader activity
+(a valid AppendEntries) or on serving a RequestVote, matching the “leader
+stickiness” property of Raft. The heartbeat period is set to
+\texttt{DEFAULT\_HEARTBEAT\_TIMEOUT}$=750\,$ms; leaders refresh this
+periodically to prevent follower timeouts.
 
-\textbf{Leader Heartbeats}: Once elected, the leader sends periodic AppendEntries RPCs (heartbeats every 750ms) to all followers. This maintains authority and prevents new elections.
+\subsubsection{RPC Handler Boundary}
+Inbound RPCs (\texttt{AppendEntries}, \texttt{RequestVote}) are intentionally thin: they push the 
+immutable request onto the corresponding request channel and block on the response channel. The state
+machine consumes these requests inside the current role's loop, computes the reply, and sends it back.
+This preserves a single point of serialization for correctness and simplifies concurrency reasoning
+(network threads never mutate the Raft state directly).
 
+\subsubsection{Term Management and Common Logic (\S5.1)}
+Both RPC paths share "common" characteristics implemented in \texttt{doCommonAE} and \texttt{doCommonRV}:
+
+\begin{itemize}
+    \item \textbf{Monotonic terms}: If a request carries a term $T > $ \texttt{s.term},
+    the server marks \emph{staleTerm/shouldAbdicate} and defers \texttt{s.term = T} until
+    the response is composed; the caller (state loop) then transitions to \texttt{FOLLOWER}
+    as needed. Replies always include the server's current term.
+
+    \item \textbf{Reject stale terms}: If $T < \texttt{s.term}$ the server rejects.
+\end{itemize}
+
+This shared handlign ensures both RPC types correctly implement Raft's term
+invariant regardless of current role.
+
+\subsubsection{AppendEntries Path (Follower \& Leader, \S5.3)}
+\texttt{doCommonAE} currently implements:
+(i) term checks per \S5.1,
+(ii) placeholder return of \texttt{Success=true} for non-conflicting cases.
+The log-consistency checks mandated by \S5.3 are marked as TODOs:
+\begin{enumerate}
+  \item Verify that the receiver’s log at \texttt{PrevLogIndex} has term \texttt{PrevLogTerm};
+  otherwise reply \texttt{Success=false}.
+  \item On conflict (same index, different term), delete the conflicting entry and all that follow.
+  \item Append new entries not already present; advance commitIndex if appropriate.
+\end{enumerate}
+While omitted for brevity in this iteration, the control flow and state transitions
+are structured to accommodate these steps.
+
+\subsubsection{RequestVote Path (Follower \& Candidate, \S5.2, \S5.4)}
+\texttt{doCommonRV} enforces:
+\begin{enumerate}
+    \item \textbf{Term rule}: adopt higher term and abdicate to follower if needed.
+    \item \textbf{Vote once per term}: grant vote only if \texttt{votedFor} is null or matches \texttt{CandidateId}.
+    \item \textbf{Log up-to-dateness} (\S5.4): grant vote only if candidate’s log is at least as up-to-date as receiver’s log.
+    We compute this through \texttt{LastLog.AtLeastUpToDateAs}, which first compares terms, the indices.
+\end{enumerate}
+The function returns both the vote and whether a higher term was observed, so callers can reset
+\texttt{votedFor} appropriately.
 \section{Demonstration}
 \lipsum[1]
 
