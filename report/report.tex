@@ -41,6 +41,7 @@ Dhananjay~Surti~(0123456789,~dhananjay.surti@sjsu.edu)%
 
 
 \section{Prior Art}
+Hello
 \lipsum[1]
 
 \section{Goals and Motivation}
@@ -72,7 +73,29 @@ Dhananjay~Surti~(0123456789,~dhananjay.surti@sjsu.edu)%
 \lipsum[1]
 
 \section{Implementation Details}
-\lipsum[1]
+Our implementation is divided into two main layers: the Client API Layer and the Consensus Layer.
+
+\subsection{Client API Layer}
+The client layer provides several endpoints for interacting with the system. These include operations for creating, deleting, and checking the existence of paths, as well as retrieving and setting data. Additionally, clients can retrieve children of a path and synchronize their state with the server.
+
+\subsection{Consensus Layer}
+The consensus layer is built on the Raft protocol, replacing Zookeeper's Zab protocol. It operates with three distinct node states: Follower, Leader, and Candidate.
+Each node runs a state machine that delegates tasks to the appropriate handler based on its current role in the cluster.
+
+ElectionServer:
+The ElectionServer represents a node in the Raft cluster. It manages the node's identity and network connections to peers via gRPC. It tracks the current term number and log index to monitor cluster progress and maintains state information, indicating whether the node is a FOLLOWER, CANDIDATE, or LEADER.
+Communication channels are used to handle AppendEntries and RequestVote RPCs.
+
+Election Algorithm:
+The election algorithm governs the behavior of nodes in the cluster:
+
+\textbf{Follower State}: Nodes start as followers, responding to RPCs from leaders and candidates. They use an election timer, randomized between 1500-2000ms, to transition to the candidate state if no heartbeat is received from the leader.
+
+\textbf{Candidate State}: When a follower’s election timer expires, it increments its term and requests votes from all peers. The candidate votes for itself and waits for responses. If it receives votes from a majority, it becomes the leader. If it receives an AppendEntries RPC with a term greater than or equal to its own, it reverts to a follower. If the election times out without achieving a quorum, the candidate restarts the election with a new term.
+
+\textbf{Vote Granting Logic}: Nodes grant votes if they haven’t voted for another candidate in the current term and if the candidate’s log is at least as up-to-date as their own. This ensures that only nodes with complete logs can become leaders.
+
+\textbf{Leader Heartbeats}: Once elected, the leader sends periodic AppendEntries RPCs (heartbeats every 750ms) to all followers. This maintains authority and prevents new elections.
 
 \section{Demonstration}
 \lipsum[1]
