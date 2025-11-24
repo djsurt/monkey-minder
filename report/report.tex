@@ -199,6 +199,54 @@ are structured to accommodate these steps.
 \end{enumerate}
 The function returns both the vote and whether a higher term was observed, so callers can reset
 \texttt{votedFor} appropriately.
+
+\subsubsection{Follower Role}
+\texttt{doFollower} maintains the election time and processes two classes of events:
+\begin{enumerate}
+    \item \textbf{AppendEntries}: processes through \texttt{doCommonAE}. On success or on seeing
+    higher term, resets election timer. If the leader's term is newer, clear \texttt{votedFor}
+    \item \textbf{RequestVote}: process via \texttt{doCommonRV}. Reply and reset the timer.
+\end{enumerate}
+If the timer elapses without observed leader activity, node transitions to \texttt{CANDIDATE}.
+
+\subsubsection{Candidate Role}
+\texttt{doCandidate} increments \texttt{term} and self-votes, then issues parallel  \texttt{RequestVote}
+RPCs vis \texttt{requestVotes(ctx)}.
+Votes are aggregated on a channel of \texttt{VoteResult}. The candidate:
+\begin{itemize}
+    \item Becomes \texttt{LEADER} upon majority (strictly more than half of $N$).
+    \item Reverts to \texttt{FOLLOWER} if any response carries a strictly higher term.
+    \item Restarts the election with a fresh randomized timeout if it fails to gain a quorum.
+    \item Rejects external vote requests for the current term because it already voted for itself,
+            unless a higher term appears (abdication).
+\end{itemize}
+
+\subsubsection{Leader Role}
+Upon entering \texttt{doLeader}, the node immediately asserts leadership by broadcasting
+\textit{heartbeats} (AppendEntries with empty \texttt{Entires}) to all peers. A ticker
+(\texttt{DEFAULT\_HEARTBEAT\_TIMEOUT}) triggers additional heartbeats periodically. Any
+inbound AppendEntries with a higher term or RequestVote with a higher term causes abdication
+to \texttt{FOLLOWER}. A short debug timer bounds the demo session for observability.
+
+% --- INSERT DIAGRAMS HERE ---
+\mmdfigure{raft-election}{Raft Leader Election State Machine}
+\mmdfigure{raft-rpc-flow}{Raft RPC Interaction During Election}
+% --- END INSERT ---
+
+\subsubsection{Outbound RPCs and Parallelism}
+\texttt{sendHeartbeats} constructs a single immutable heartbeat request and invokes
+\texttt{AppendEntries} on each \texttt{ElectionClient} concurrently. Results are pushed to a
+shared \texttt{responses} channel.
+
+\texttt{requestVotes} similarly fans out \texttt{RequestVote} calls. Results are wrapped in
+\texttt{VoteResult} (peer id, grant bit, observed term, error) and gathered on a buffered channel.
+A \texttt{WaitGroup} coordinates producer completion, after which the channel is closed.
+
+\subsection{Transport and Peer Topology}
+\texttt{connectToPeers} creates long-lived gRPC client stubs
+(\texttt{raftpb.ElectionClient}) to all peers listed in \texttt{peers: map[NodeId]string}.
+These stubs are stored in \texttt{s.peerConns}. 
+
 \section{Demonstration}
 \lipsum[1]
 
