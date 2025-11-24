@@ -106,13 +106,21 @@ func (self *LastLog) AtLeastAsUpToDateAs(other *LastLog) bool {
 // Handle a RequestVote request. Accepts the requestor's VoteRequest struct and
 // a NodeId containing the value of the node the requestee voted for this cycle,
 // which may be null.
+//
 // Mutates the value of votedFor when a vote is granted.
+//
+// If I am in CANDIDATE state and the request has a higher term than me,
+// updates the s.term value to the candidate's term and grants them a vote.
+//
 // Returns the Vote response and a boolean indicating whether the requestor's
 // term is higher than the server's and should thus transition to follower.
-func (s *RaftServer) doCommonRV(request *raftpb.VoteRequest) (vote *raftpb.Vote, shouldAbdicate bool) {
+func (s *RaftServer) doCommonRV(request *raftpb.VoteRequest) (
+	vote *raftpb.Vote, shouldAbdicate bool) {
 	shouldAbdicate = Term(request.Term) > s.term
+	// Change my vote if the candidate has a higher term than me.
 	if shouldAbdicate {
 		s.updateTerm(Term(request.Term))
+		s.state = FOLLOWER
 		s.votedFor = 0
 	}
 
@@ -127,6 +135,7 @@ func (s *RaftServer) doCommonRV(request *raftpb.VoteRequest) (vote *raftpb.Vote,
 	}
 	log.Printf("VOTE: My Term: %d, Candidate's Term: %d\n", s.term, request.Term)
 
+	// Get the index and term numbers from the voter's last log entry.
 	lastEntry, lastIndex := s.log.GetEntryLatest()
 	myLog := LastLog{Index: lastIndex}
 	if lastEntry != nil {
@@ -135,6 +144,7 @@ func (s *RaftServer) doCommonRV(request *raftpb.VoteRequest) (vote *raftpb.Vote,
 		myLog.Term = Term(0)
 	}
 
+	// Get the index and term numbers from the candidate's last log entry.
 	candidateLog := LastLog{
 		Term:  Term(request.LastLogTerm),
 		Index: raftlog.Index(request.LastLogIndex),
@@ -142,14 +152,16 @@ func (s *RaftServer) doCommonRV(request *raftpb.VoteRequest) (vote *raftpb.Vote,
 
 	// §5.2, §5.4: If votedFor is null or candidateId, and candidate's log
 	// is at least as up-to-date as receiver's log, grant vote.
-	if (s.votedFor == 0 || s.votedFor == NodeId(request.CandidateId)) &&
-		candidateLog.AtLeastAsUpToDateAs(&myLog) {
+	logOk := candidateLog.AtLeastAsUpToDateAs(&myLog)
+	if Term(request.Term) == s.term && logOk &&
+		(s.votedFor == 0 ||
+			s.votedFor == NodeId(request.CandidateId)) {
 		vote.VoteGranted = true
 		s.votedFor = NodeId(request.CandidateId)
 		log.Printf("Granting vote to CANDIDATE %d\n", request.CandidateId)
-		return vote, shouldAbdicate
+	} else {
+		vote.VoteGranted = false
 	}
 
-	vote.VoteGranted = false
 	return vote, shouldAbdicate
 }

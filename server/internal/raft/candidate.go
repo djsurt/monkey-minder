@@ -26,7 +26,6 @@ func (s *RaftServer) doCandidate(ctx context.Context) {
 	for {
 		select {
 		case vote := <-voteResponses:
-			log.Printf("My term: %d vote term: %d", s.term, vote.term)
 			if vote.err != nil {
 				switch status.Code(vote.err) {
 				case codes.Unavailable:
@@ -53,12 +52,12 @@ func (s *RaftServer) doCandidate(ctx context.Context) {
 				return
 			}
 		case voteReq := <-s.rvRequestChan:
-			// Reject votes because I've already voted for myself.
+			// Reject votes unless the candidate has a higher term than me.
 			vote, shouldAbdicate := s.doCommonRV(voteReq)
 			if shouldAbdicate {
 				log.Printf("Received vote request w/ more recent term from node %d. Reverting to FOLLOWER...\n", voteReq.CandidateId)
-				s.state = FOLLOWER
 				rpcCancel()
+				s.state = FOLLOWER
 			}
 			s.rvResponseChan <- vote
 		case <-electionTimer:
@@ -71,7 +70,7 @@ func (s *RaftServer) doCandidate(ctx context.Context) {
 			s.aeResponseChan <- res
 
 			if shouldAbdicate {
-				s.state = FOLLOWER
+				log.Printf("Received AppendEntries with higher term. Reverting to FOLLOWER...\n")
 				return
 			}
 		}
