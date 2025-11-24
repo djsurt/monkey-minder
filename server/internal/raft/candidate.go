@@ -36,6 +36,7 @@ func (s *RaftServer) doCandidate(ctx context.Context) {
 			} else if s.term == vote.term && vote.granted {
 				log.Printf("Vote received from node %d\n", vote.peer)
 				log.Printf("Vote count: %d\n", len(votes))
+				// Use set for counting votes to make sure repeated votes are idempotent.
 				votes[vote.peer] = struct{}{}
 
 				// Check for quorum
@@ -49,6 +50,7 @@ func (s *RaftServer) doCandidate(ctx context.Context) {
 				log.Printf("Received more recent term from node %d. Reverting to FOLLOWER...\n", vote.peer)
 				s.term = vote.term
 				s.state = FOLLOWER
+				s.votedFor = 0
 				return
 			}
 		case voteReq := <-s.rvRequestChan:
