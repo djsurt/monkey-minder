@@ -6,15 +6,18 @@ package raft
 import (
 	"context"
 	"log"
-	"sync"
 
 	raftpb "github.com/djsurt/monkey-minder/server/proto/raft"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func (s *RaftServer) doCandidate(ctx context.Context) {
 	s.term += 1
 	votedFor := s.Id
-	voteCount := 1
+	votes := map[NodeId]struct{}{
+		s.Id: {},
+	}
 	electionTimer := getNewElectionTimer()
 	rpcCtx, rpcCancel := context.WithCancel(ctx)
 	voteResponses := s.requestVotes(rpcCtx)
@@ -23,28 +26,31 @@ func (s *RaftServer) doCandidate(ctx context.Context) {
 	for {
 		select {
 		case vote := <-voteResponses:
-			if vote.granted {
+			log.Printf("My term: %d vote term: %d", s.term, vote.term)
+			if vote.err != nil {
+				switch status.Code(vote.err) {
+				case codes.Unavailable:
+					log.Printf("Error requesting vote from node %d: Node unavailable", vote.peer)
+				default:
+					log.Printf("Error requesting vote from node %d: %v", vote.peer, vote.err)
+				}
+			} else if s.term == vote.term && vote.granted {
 				log.Printf("Vote received from node %d\n", vote.peer)
-				voteCount += 1
+				log.Printf("Vote count: %d\n", len(votes))
+				votes[vote.peer] = struct{}{}
 
 				// Check for quorum
-				if voteCount > (len(s.peerConns)+1)/2 {
+				if len(votes) > (len(s.peerConns)+1)/2 {
 					log.Printf("Asserting myself as LEADER.\n")
 					s.state = LEADER
 					rpcCancel()
 					return
 				}
-			} else {
-				if vote.err != nil {
-					log.Printf("Error requesting vote from node %d: %v", vote.peer, vote.err)
-				}
-
-				if vote.term > s.term {
-					log.Printf("Received more recent term from node %d. Reverting to FOLLOWER...\n", vote.peer)
-					s.term = vote.term
-					s.state = FOLLOWER
-					return
-				}
+			} else if vote.term > s.term {
+				log.Printf("Received more recent term from node %d. Reverting to FOLLOWER...\n", vote.peer)
+				s.term = vote.term
+				s.state = FOLLOWER
+				return
 			}
 		case voteReq := <-s.rvRequestChan:
 			// Reject votes because I've already voted for myself.
@@ -84,6 +90,8 @@ type VoteResult struct {
 // the VoteResult channel, which may be closed after the Candidate caller
 // achieves quorum or abdicates.
 func (s *RaftServer) requestVotes(ctx context.Context) <-chan VoteResult {
+	// Do NOT close this channel, else it will cause doCandidate to spin for an
+	// indeterminate amount of time.
 	voteResponses := make(chan VoteResult, len(s.peerConns))
 
 	latestEntry, _ := s.log.GetEntryLatest()
@@ -100,32 +108,26 @@ func (s *RaftServer) requestVotes(ctx context.Context) <-chan VoteResult {
 		LastLogTerm:  uint64(lastLogTerm),
 	}
 
-	go func() {
-		var wg sync.WaitGroup
-		for peerId, peerConn := range s.peerConns {
-			wg.Go(func() {
-				vote, err := peerConn.RequestVote(ctx, voteReq)
+	for peerId, peerConn := range s.peerConns {
+		go func() {
+			vote, err := peerConn.RequestVote(ctx, voteReq)
 
-				voteResult := VoteResult{
-					peer:    peerId,
-					granted: vote.GetVoteGranted(),
-					term:    Term(vote.GetTerm()),
-					err:     err,
-				}
+			voteResult := VoteResult{
+				peer:    peerId,
+				granted: vote.GetVoteGranted(),
+				term:    Term(vote.GetTerm()),
+				err:     err,
+			}
 
-				// Handle response appropriately
-				select {
-				case <-ctx.Done():
-					return
-				default:
-					voteResponses <- voteResult
-				}
-			})
-		}
-		// Wait for all responses to be received
-		wg.Wait()
-		close(voteResponses)
-	}()
+			// Handle response appropriately
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				voteResponses <- voteResult
+			}
+		}()
+	}
 
 	return voteResponses
 }

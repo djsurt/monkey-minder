@@ -112,7 +112,8 @@ func (self *LastLog) AtLeastAsUpToDateAs(other *LastLog) bool {
 func (s *RaftServer) doCommonRV(request *raftpb.VoteRequest, votedFor *NodeId) (vote *raftpb.Vote, shouldAbdicate bool) {
 	shouldAbdicate = Term(request.Term) > s.term
 	if shouldAbdicate {
-		defer s.updateTerm(Term(request.Term))
+		s.updateTerm(Term(request.Term))
+		votedFor = nil
 	}
 
 	vote = &raftpb.Vote{
