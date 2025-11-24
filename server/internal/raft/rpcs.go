@@ -71,13 +71,36 @@ func (s *RaftServer) doCommonAE(request *raftpb.AppendEntriesRequest) (response 
 	}
 
 	// §5.3: Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm
+	myLogLastIdx := s.log.IndexOfLast()
 	prevLogIdx := raftlog.Index(request.PrevLogIndex)
-	prevLogEntry, err := s.log.GetEntryAt(prevLogIdx)
-	// Follower's log doesn't match leader's
-	if err != nil || (*prevLogEntry).Term != request.PrevLogTerm {
+
+	// My log should be at least as long as the committed portion of the
+	// leader's log, or else we've violated the log safety invariant.
+	logOk := myLogLastIdx >= prevLogIdx
+
+	// If the leader has at least 1 committed entry, I need to make sure that
+	// my log has the same term value for myLog[prevLogIdx] to preserve the
+	// log safety invariant.
+	log.Printf("Value of prevLogIdx: %d\n", prevLogIdx)
+	if prevLogIdx > 0 {
+		prevEntry, err := s.log.GetEntryAt(prevLogIdx)
+		if err != nil {
+			log.Printf("Error retrieving latest log while processing AE from leader %d: %v\n", request.LeaderId, err)
+			response.Success = false
+			return
+		}
+		logOk = logOk && (*prevEntry).Term == request.PrevLogTerm
+	}
+
+	// My log and leader's log agree up to and including prevLogIdx
+	if !logOk {
 		response.Success = false
 		return response, false
 	}
+
+	// After this point, I know that my log agrees with leader, though I may
+	// need to delete uncommitted entries.
+	response.Success = true
 
 	// TODO:
 	// §5.3: If an existing entry conflicts with a new one (same index but
