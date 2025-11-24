@@ -19,9 +19,9 @@ func (s *RaftServer) doCandidate(ctx context.Context) {
 		s.Id: {},
 	}
 	electionTimer := getNewElectionTimer()
-	rpcCtx, rpcCancel := context.WithCancel(ctx)
-	voteResponses := s.requestVotes(rpcCtx)
-	defer rpcCancel()
+	electionCtx, cancelElection := context.WithCancel(ctx)
+	voteResponses := s.requestVotes(electionCtx)
+	defer cancelElection()
 
 	for {
 		select {
@@ -42,7 +42,7 @@ func (s *RaftServer) doCandidate(ctx context.Context) {
 				if len(votes) > (len(s.peerConns)+1)/2 {
 					log.Printf("Asserting myself as LEADER.\n")
 					s.state = LEADER
-					rpcCancel()
+					cancelElection()
 					return
 				}
 			} else if vote.term > s.term {
@@ -56,8 +56,8 @@ func (s *RaftServer) doCandidate(ctx context.Context) {
 			vote, shouldAbdicate := s.doCommonRV(voteReq)
 			if shouldAbdicate {
 				log.Printf("Received vote request w/ more recent term from node %d. Reverting to FOLLOWER...\n", voteReq.CandidateId)
-				rpcCancel()
 				s.state = FOLLOWER
+				cancelElection()
 			}
 			s.rvResponseChan <- vote
 		case <-electionTimer:
