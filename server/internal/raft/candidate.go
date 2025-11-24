@@ -68,11 +68,13 @@ func (s *RaftServer) doCandidate(ctx context.Context) {
 			log.Printf("Election timed out. Restarting CANDIDATE state...")
 			return
 		case aeReq := <-s.aeRequestChan:
-			res, shouldAbdicate := s.doCommonAE(aeReq)
+			res, staleTerm := s.doCommonAE(aeReq)
 			s.aeResponseChan <- res
 
-			if shouldAbdicate {
-				log.Printf("Received AppendEntries with higher term. Reverting to FOLLOWER...\n")
+			// If I receive an AE from a node with a term at least as great as
+			// mine, someone else got elected.
+			if staleTerm || s.term == Term(res.Term) {
+				log.Printf("Received AppendEntries from a valid leader. Reverting to FOLLOWER...\n")
 				return
 			}
 		}

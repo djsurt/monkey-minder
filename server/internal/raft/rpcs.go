@@ -44,17 +44,20 @@ func (s *RaftServer) updateTerm(newTerm Term) {
 }
 
 // Handle parts of AppendEntries request that are common to all node states.
+//
 // Returns an AppendEntriesResult and a boolean indicating whether the
-// requestor's term is higher than the server's and should thus transition to
-// follower.
+// requestor's term is greater than or equal to my term and should thus
+// transition to FOLLOWER.
+//
+// Mutates s.votedFor and s.term when the AppendEntries' term is greater than
+// my current term.
 func (s *RaftServer) doCommonAE(request *raftpb.AppendEntriesRequest) (response *raftpb.AppendEntriesResult, staleTerm bool) {
-	log.Printf("incoming AE: %v", request)
-
 	// §5.1: If RPC request or response contains term T > currentTerm:
 	// set currentTerm = T, convert to follower
 	staleTerm = Term(request.Term) > s.term
 	if staleTerm {
-		defer s.updateTerm(Term(request.Term))
+		s.updateTerm(Term(request.Term))
+		s.votedFor = 0
 	}
 
 	response = &raftpb.AppendEntriesResult{
