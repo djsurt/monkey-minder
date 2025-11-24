@@ -11,7 +11,6 @@ import (
 // timeout occurs. Set state to CANDIDATE and return upon an election timeout.
 func (s *RaftServer) doFollower(ctx context.Context) {
 	electionTimer := getNewElectionTimer()
-	var votedFor *NodeId
 
 	for {
 		select {
@@ -24,15 +23,15 @@ func (s *RaftServer) doFollower(ctx context.Context) {
 			response, termChanged := s.doCommonAE(aeReq)
 			s.aeResponseChan <- response
 			if termChanged {
-				votedFor = nil
+				s.votedFor = 0
 			}
 			electionTimer = getNewElectionTimer()
 
 		case rvReq := <-s.rvRequestChan:
-			vote, termChanged := s.doCommonRV(rvReq, votedFor)
+			vote, termChanged := s.doCommonRV(rvReq)
 			s.rvResponseChan <- vote
 			if termChanged {
-				votedFor = nil
+				s.votedFor = 0
 			}
 			electionTimer = getNewElectionTimer()
 		}

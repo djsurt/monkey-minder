@@ -109,11 +109,11 @@ func (self *LastLog) AtLeastAsUpToDateAs(other *LastLog) bool {
 // Mutates the value of votedFor when a vote is granted.
 // Returns the Vote response and a boolean indicating whether the requestor's
 // term is higher than the server's and should thus transition to follower.
-func (s *RaftServer) doCommonRV(request *raftpb.VoteRequest, votedFor *NodeId) (vote *raftpb.Vote, shouldAbdicate bool) {
+func (s *RaftServer) doCommonRV(request *raftpb.VoteRequest) (vote *raftpb.Vote, shouldAbdicate bool) {
 	shouldAbdicate = Term(request.Term) > s.term
 	if shouldAbdicate {
 		s.updateTerm(Term(request.Term))
-		votedFor = nil
+		s.votedFor = 0
 	}
 
 	vote = &raftpb.Vote{
@@ -142,10 +142,10 @@ func (s *RaftServer) doCommonRV(request *raftpb.VoteRequest, votedFor *NodeId) (
 
 	// §5.2, §5.4: If votedFor is null or candidateId, and candidate's log
 	// is at least as up-to-date as receiver's log, grant vote.
-	if (votedFor == nil || *votedFor == NodeId(request.CandidateId)) &&
+	if (s.votedFor == 0 || s.votedFor == NodeId(request.CandidateId)) &&
 		candidateLog.AtLeastAsUpToDateAs(&myLog) {
 		vote.VoteGranted = true
-		votedFor = (*NodeId)(&request.CandidateId)
+		s.votedFor = NodeId(request.CandidateId)
 		log.Printf("Granting vote to CANDIDATE %d\n", request.CandidateId)
 		return vote, shouldAbdicate
 	}

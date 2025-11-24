@@ -108,7 +108,7 @@ func (s *RaftServer) doLeader(ctx context.Context) {
 			}
 		case req := <-s.rvRequestChan:
 			// incoming RequestVote
-			res, shouldAbdicate := s.doCommonRV(req, nil)
+			res, shouldAbdicate := s.doCommonRV(req)
 			s.rvResponseChan <- res
 			if shouldAbdicate {
 				log.Printf("Abdicating to FOLLOWER.\n")

@@ -14,7 +14,7 @@ import (
 
 func (s *RaftServer) doCandidate(ctx context.Context) {
 	s.term += 1
-	votedFor := s.Id
+	s.votedFor = s.Id
 	votes := map[NodeId]struct{}{
 		s.Id: {},
 	}
@@ -54,7 +54,7 @@ func (s *RaftServer) doCandidate(ctx context.Context) {
 			}
 		case voteReq := <-s.rvRequestChan:
 			// Reject votes because I've already voted for myself.
-			vote, shouldAbdicate := s.doCommonRV(voteReq, &votedFor)
+			vote, shouldAbdicate := s.doCommonRV(voteReq)
 			if shouldAbdicate {
 				log.Printf("Received vote request w/ more recent term from node %d. Reverting to FOLLOWER...\n", voteReq.CandidateId)
 				s.state = FOLLOWER

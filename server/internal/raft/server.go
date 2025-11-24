@@ -39,6 +39,7 @@ type RaftServer struct {
 	listener       net.Conn
 	peerConns      map[NodeId]raftpb.RaftClient
 	term           Term
+	votedFor       NodeId
 	log            Log
 	aeRequestChan  chan *raftpb.AppendEntriesRequest
 	aeResponseChan chan *raftpb.AppendEntriesResult
