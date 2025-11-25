@@ -42,6 +42,7 @@ type RaftServer struct {
 	votedFor       NodeId
 	log            Log
 	commitIdx      raftlog.Index
+	tree           *tree.Tree
 	aeRequestChan  chan *raftpb.AppendEntriesRequest
 	aeResponseChan chan *raftpb.AppendEntriesResult
 	rvRequestChan  chan *raftpb.VoteRequest
@@ -57,6 +58,7 @@ func NewRaftServer(port int, id NodeId, peers map[NodeId]string) *RaftServer {
 		term:  1,
 		// TODO should be loading from disk instead in the case where we do that
 		log:            raftlog.NewLog(tree.NewTree(), 0),
+		tree:           tree.NewTree(),
 		aeRequestChan:  make(chan *raftpb.AppendEntriesRequest),
 		aeResponseChan: make(chan *raftpb.AppendEntriesResult),
 		rvRequestChan:  make(chan *raftpb.VoteRequest),
