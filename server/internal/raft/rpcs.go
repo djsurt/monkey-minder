@@ -118,6 +118,14 @@ func (s *RaftServer) doCommonAE(request *raftpb.AppendEntriesRequest) (
 	// Append any new entries not already in the log
 	s.reconcileLogs(prevLogIdx, request.Entries)
 
+	// If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index
+	// of last new entry)
+	leaderCommit := raftlog.Index(request.LeaderCommit)
+	if leaderCommit > s.commitIdx {
+		lastIdx := s.log.IndexOfLast()
+		s.commitIdx = min(leaderCommit, lastIdx)
+	}
+
 	return response, staleTerm
 }
 
