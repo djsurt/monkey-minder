@@ -158,7 +158,12 @@ func (log *Log[E, S]) GetEntryLatest() (entryMaybe *E, idx Index) {
 	}
 }
 
+// Truncate everything from [idx, ...)
+// Panics if it tries to truncate an already committed index.
 func (log *Log[E, S]) TruncateAt(idx Index) error {
+	if idx <= log.commitIdx {
+		panic("Tried to truncate committed entries!")
+	}
 	if idx < log.realFirstIndex.unwrap() {
 		return errors.New("provided index lies below first actual entry of log")
 	}

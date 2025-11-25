@@ -110,12 +110,8 @@ func (s *RaftServer) doCommonAE(request *raftpb.AppendEntriesRequest) (
 	// need to delete uncommitted entries.
 	response.Success = true
 
-	// TODO:
 	// §5.3: If an existing entry conflicts with a new one (same index but
 	// different terms), delete the existing entry and all that follow it
-
-	// TODO:
-	// Append any new entries not already in the log
 	s.reconcileLogs(prevLogIdx, request.Entries)
 
 	// If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index
