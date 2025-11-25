@@ -158,8 +158,7 @@ func (self *LastLog) AtLeastAsUpToDateAs(other *LastLog) bool {
 // Returns the Vote response and a boolean indicating whether the requestor's
 // term is higher than the server's and should thus transition to follower.
 func (s *RaftServer) doCommonRV(
-	request *raftpb.VoteRequest,
-	votedFor *NodeId) (
+	request *raftpb.VoteRequest) (
 	vote *raftpb.Vote,
 	shouldAbdicate bool,
 ) {
