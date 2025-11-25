@@ -142,7 +142,52 @@ func (s *RaftServer) doCommonAE(request *raftpb.AppendEntriesRequest) (
 func (s *RaftServer) reconcileLogs(
 	prevLogIdx raftlog.Index,
 	newEntries []*raftpb.LogEntry) (int, error) {
-	return 0, nil
+	if len(newEntries) == 0 {
+		return 0, nil
+	}
+	startIdx := prevLogIdx + 1
+	entriesAdded := 0
+
+	for i, newEntry := range newEntries {
+		currentIdx := startIdx + raftlog.Index(i)
+		existingEntry, err := s.log.GetEntryAt(currentIdx)
+		if err != nil {
+			//No entry exists at this index
+			//Append this entry and all remaining entries
+			for j := i; j < len(newEntries); j++ {
+				s.log.Append(newEntries[j])
+				entriesAdded++
+			}
+			break
+		}
+
+		if (*existingEntry).Term != newEntry.Term {
+			//Conflict detected, truncate from this point and append new entries
+			//TODO: Need to implement truncation of log
+			s.truncateLogAt(currentIdx)
+			for j := i; j < len(newEntries); j++ {
+				s.log.Append(newEntries[j])
+				entriesAdded++
+			}
+			break
+		}
+		//Entry matches, continue checking next entry
+	}
+	return entriesAdded, nil
+}
+
+func (s *RaftServer) truncateLogAt(idx raftlog.Index) {
+	firstIdx := s.log.IndexBeforeFirst() + 1
+	newLog := raftlog.NewLog((*s.log.Latest()).Clone(), uint64(s.log.IndexBeforeFirst()))
+
+	for i := firstIdx; i < idx; i++ {
+		entry, err := s.log.GetEntryAt(i)
+		if err != nil {
+			break
+		}
+		newLog.Append(*entry)
+	}
+	s.log = newLog
 }
 
 // Used for comparing most recent logs during RequestVotes
