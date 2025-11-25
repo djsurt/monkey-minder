@@ -146,48 +146,65 @@ func (s *RaftServer) reconcileLogs(
 		return 0, nil
 	}
 	startIdx := prevLogIdx + 1
-	entriesAdded := 0
+	myLogLastIdx := s.log.IndexOfLast()
+	// If all new entries are beyond our current log, just append them all
+	if startIdx > myLogLastIdx {
+		for _, entry := range newEntries {
+			s.log.Append(entry)
+		}
+		return len(newEntries), nil
+	}
 
-	for i, newEntry := range newEntries {
+	divergenceIdx := -1
+	for i := len(newEntries) - 1; i >= 0; i-- {
 		currentIdx := startIdx + raftlog.Index(i)
+		// If this index is beyond my log, continue
+		if currentIdx > myLogLastIdx {
+			continue
+		}
 		existingEntry, err := s.log.GetEntryAt(currentIdx)
 		if err != nil {
-			//No entry exists at this index
-			//Append this entry and all remaining entries
-			for j := i; j < len(newEntries); j++ {
-				s.log.Append(newEntries[j])
-				entriesAdded++
-			}
+			//Shouldn't happen, since we checked bounds above
+			divergenceIdx = i
 			break
 		}
 
-		if (*existingEntry).Term != newEntry.Term {
-			//Conflict detected, truncate from this point and append new entries
-			//TODO: Need to implement truncation of log
-			s.truncateLogAt(currentIdx)
-			for j := i; j < len(newEntries); j++ {
-				s.log.Append(newEntries[j])
-				entriesAdded++
-			}
+		if (*existingEntry).Term != newEntries[i].Term {
+			//Found divergence point
+			divergenceIdx = i
 			break
 		}
-		//Entry matches, continue checking next entry
+		// If terms match, the entry is already correct, keep checking earlier entries
 	}
+
+	//If no divergence found, (divergenceIdx == -1), all entries match
+	//Just append any entries beyond my log
+	if divergenceIdx == -1 {
+		appendStart := int(myLogLastIdx - startIdx + 1)
+		if appendStart < len(newEntries) {
+			for i := appendStart; i < len(newEntries); i++ {
+				s.log.Append(newEntries[i])
+			}
+			return len(newEntries) - appendStart, nil
+		}
+		return 0, nil
+	}
+
+	//Divergence found at divergenceIdx
+	//Truncate log at startIdx + divergenceIdx and append all new entries from there
+	truncateIdx := startIdx + raftlog.Index(divergenceIdx)
+	err := s.log.TruncateAt(truncateIdx)
+	if err != nil {
+		log.Printf("Error truncating log at index %d: %v", truncateIdx, err)
+	}
+
+	entriesAdded := 0
+	for i := divergenceIdx; i < len(newEntries); i++ {
+		s.log.Append(newEntries[i])
+		entriesAdded++
+	}
+
 	return entriesAdded, nil
-}
-
-func (s *RaftServer) truncateLogAt(idx raftlog.Index) {
-	firstIdx := s.log.IndexBeforeFirst() + 1
-	newLog := raftlog.NewLog((*s.log.Latest()).Clone(), uint64(s.log.IndexBeforeFirst()))
-
-	for i := firstIdx; i < idx; i++ {
-		entry, err := s.log.GetEntryAt(i)
-		if err != nil {
-			break
-		}
-		newLog.Append(*entry)
-	}
-	s.log = newLog
 }
 
 // Used for comparing most recent logs during RequestVotes

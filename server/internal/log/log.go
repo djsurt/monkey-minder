@@ -157,3 +157,20 @@ func (log *Log[E, S]) GetEntryLatest() (entryMaybe *E, idx Index) {
 		return nil, log.realFirstIndex.prior()
 	}
 }
+
+func (log *Log[E, S]) TruncateAt(idx Index) error {
+	if idx < log.realFirstIndex.unwrap() {
+		return errors.New("provided index lies below first actual entry of log")
+	}
+
+	if idx > log.IndexOfLast() {
+		//Nothing to truncate
+		return nil
+	}
+
+	//Position in entries slice to truncate at
+	//idx is the first entry to remove, so we keep everything before it
+	numToKeep := int(idx - log.realFirstIndex.unwrap())
+	log.entries = log.entries[:numToKeep]
+	return nil
+}
