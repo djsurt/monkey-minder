@@ -58,7 +58,6 @@ func NewRaftServer(port int, id NodeId, peers map[NodeId]string) *RaftServer {
 		term:  1,
 		// TODO should be loading from disk instead in the case where we do that
 		log:            raftlog.NewLog(tree.NewTree(), 0),
-		tree:           tree.NewTree(),
 		aeRequestChan:  make(chan *raftpb.AppendEntriesRequest),
 		aeResponseChan: make(chan *raftpb.AppendEntriesResult),
 		rvRequestChan:  make(chan *raftpb.VoteRequest),
