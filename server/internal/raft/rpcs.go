@@ -51,7 +51,12 @@ func (s *RaftServer) updateTerm(newTerm Term) {
 //
 // Mutates s.votedFor and s.term when the AppendEntries' term is greater than
 // my current term.
-func (s *RaftServer) doCommonAE(request *raftpb.AppendEntriesRequest) (response *raftpb.AppendEntriesResult, staleTerm bool) {
+func (s *RaftServer) doCommonAE(request *raftpb.AppendEntriesRequest) (
+	response *raftpb.AppendEntriesResult,
+	staleTerm bool,
+) {
+	log.Printf("incoming AE: %v", request)
+
 	// §5.1: If RPC request or response contains term T > currentTerm:
 	// set currentTerm = T, convert to follower
 	staleTerm = Term(request.Term) > s.term
@@ -152,8 +157,12 @@ func (self *LastLog) AtLeastAsUpToDateAs(other *LastLog) bool {
 //
 // Returns the Vote response and a boolean indicating whether the requestor's
 // term is higher than the server's and should thus transition to follower.
-func (s *RaftServer) doCommonRV(request *raftpb.VoteRequest) (
-	vote *raftpb.Vote, shouldAbdicate bool) {
+func (s *RaftServer) doCommonRV(
+	request *raftpb.VoteRequest,
+	votedFor *NodeId) (
+	vote *raftpb.Vote,
+	shouldAbdicate bool,
+) {
 	shouldAbdicate = Term(request.Term) > s.term
 	// Change my vote if the candidate has a higher term than me.
 	if shouldAbdicate {
