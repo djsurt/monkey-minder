@@ -118,12 +118,31 @@ func (s *RaftServer) doCommonAE(request *raftpb.AppendEntriesRequest) (
 	// Append any new entries not already in the log
 	s.reconcileLogs(prevLogIdx, request.Entries)
 
+	// Save prevCommitIdx for updating state machine
+	prevCommitIdx := s.commitIdx
+
 	// If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index
 	// of last new entry)
 	leaderCommit := raftlog.Index(request.LeaderCommit)
 	if leaderCommit > s.commitIdx {
 		lastIdx := s.log.IndexOfLast()
 		s.commitIdx = min(leaderCommit, lastIdx)
+	}
+
+	// Apply committed log entries (prevCommitIdx, commitIdx] to state machine
+	for i := prevCommitIdx + 1; i <= s.commitIdx; i++ {
+		entry, err := s.log.GetEntryAt(i)
+		if err != nil {
+			log.Printf("I should have an entry at log idx %d!\n\t%v", i, err)
+			response.Success = false
+			return response, staleTerm
+		}
+		err = s.tree.ApplyEntry(*entry)
+		if err != nil {
+			log.Printf("Error applying log entry to tree: %v", err)
+			response.Success = false
+			return response, staleTerm
+		}
 	}
 
 	return response, staleTerm
