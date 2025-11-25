@@ -90,7 +90,7 @@ func (s *RaftServer) doCommonAE(request *raftpb.AppendEntriesRequest) (
 	// Second, I check that my log agrees with the leader's at prevLogIdx,
 	// otherwise the common ancestor is further back in the log history.
 	log.Printf("Value of prevLogIdx: %d\n", prevLogIdx)
-	if prevLogIdx > 0 {
+	if logOk && prevLogIdx > 0 {
 		prevEntry, err := s.log.GetEntryAt(prevLogIdx)
 		if err != nil {
 			log.Printf("Error retrieving latest log while processing AE from leader %d: %v\n", request.LeaderId, err)
