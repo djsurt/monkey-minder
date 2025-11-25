@@ -79,13 +79,16 @@ func (s *RaftServer) doCommonAE(request *raftpb.AppendEntriesRequest) (
 	myLogLastIdx := s.log.IndexOfLast()
 	prevLogIdx := raftlog.Index(request.PrevLogIndex)
 
-	// My log should be at least as long as the committed portion of the
-	// leader's log, or else we've violated the log safety invariant.
+	// My log should agree with the leader's up until at least prevLogIdx,
+	// or else the leader needs to go further in the log history to find
+	// our common ancestor.
+
+	// First, my log should be at least as long as the leader thinks it is to
+	// accept any new entries.
 	logOk := myLogLastIdx >= prevLogIdx
 
-	// If the leader has at least 1 committed entry, I need to make sure that
-	// my log has the same term value for myLog[prevLogIdx] to preserve the
-	// log safety invariant.
+	// Second, I check that my log agrees with the leader's at prevLogIdx,
+	// otherwise the common ancestor is further back in the log history.
 	log.Printf("Value of prevLogIdx: %d\n", prevLogIdx)
 	if prevLogIdx > 0 {
 		prevEntry, err := s.log.GetEntryAt(prevLogIdx)
