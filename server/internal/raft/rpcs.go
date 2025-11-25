@@ -108,9 +108,21 @@ func (s *RaftServer) doCommonAE(request *raftpb.AppendEntriesRequest) (response 
 
 	// TODO:
 	// Append any new entries not already in the log
+	s.reconcileLogs(prevLogIdx, request.Entries)
 
-	response.Success = true
 	return response, staleTerm
+}
+
+// Starting from prevLogIdx + 1, reconcile my log with the leader's log. Find
+// the most recent index where my log agrees with leader, then overwrite or
+// append the remaining logs.
+//
+// Returns an int of the number of new log entries added, and an error if any
+// errors occur while accessing/mutating the log.
+func (s *RaftServer) reconcileLogs(
+	prevLogIdx raftlog.Index,
+	newEntries []*raftpb.LogEntry) (int, error) {
+	return 0, nil
 }
 
 // Used for comparing most recent logs during RequestVotes
