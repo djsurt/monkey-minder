@@ -128,10 +128,9 @@ local state (\texttt{state}) $\in$ \{\texttt{FOLLOWER}, \texttt{CANDIDATE}, \tex
 strongly-types aliases for clairty:
 \texttt{Term} and \texttt{LogIndex} (\texttt{uint64}), and \texttt{NodeId} (\texttt{uint64}).
 
-The server exposes the Raft RPC surface through the gRPC (service \texttt{ElectionServer}).
-Inbound RPCs are demultiplexed into internal channels:
-\texttt{aeRequestChan/aeResponseChan} for AppendEntries and \texttt{rvRequestChan/rvResponseChan} for RequestVote. The channel-based
-boundary separates networking from the core state machine.
+The server exposes the Raft RPC through gRPC (service \texttt{ElectionServer}).
+Inbound RPCs are separated into internal channels:
+\texttt{aeRequestChan/aeResponseChan} for AppendEntries and \texttt{rvRequestChan/rvResponseChan} for RequestVote.
 
 \subsubsection{Lifecycle and Event Loop}
 The method \texttt{Serve()} performs three responsibilities:
@@ -139,7 +138,7 @@ The method \texttt{Serve()} performs three responsibilities:
 (ii) construct and register a gRPC server that binds the Raft RPC handlers,
 and (iii) spawns the node's control loop \texttt{doLoop(ctx)} which drives the Raft state machine.
 
-\texttt{doLoop} runs forever, dispatching to one of \texttt{doFollower}, \texttt{doCandidate}, or 
+\texttt{doLoop} runs forever, redirecting to one of \texttt{doFollower}, \texttt{doCandidate}, or 
 \texttt{doLeader} based on \texttt{state}. Each state handler is a blocking loop selecting over protocol
 events (RPCs) and timers, and exits only when a state transition occurs (e.g. timeout, quorum win, or term regression). This makes sure 
 that only one state handler is active at a time.
@@ -154,9 +153,9 @@ stickiness” property of Raft. The heartbeat period is set to
 periodically to prevent follower timeouts.
 
 \subsubsection{RPC Handler Boundary}
-Inbound RPCs (\texttt{AppendEntries}, \texttt{RequestVote}) are intentionally thin: they push the 
+Inbound RPCs (\texttt{AppendEntries}, \texttt{RequestVote}) are thin on purpose: they push the 
 immutable request onto the corresponding request channel and block on the response channel. The state
-machine consumes these requests inside the current role's loop, computes the reply, and sends it back.
+machine consumes these requests inside the current role's loop, generates the reply, and sends it back.
 This preserves a single point of serialization for correctness and simplifies concurrency reasoning
 (network threads never mutate the Raft state directly).
 
@@ -242,6 +241,56 @@ shared \texttt{responses} channel.
 \texttt{VoteResult} (peer id, grant bit, observed term, error) and gathered on a buffered channel.
 A \texttt{WaitGroup} coordinates producer completion, after which the channel is closed.
 
+\subsection{Log Module}
+The \texttt{log} package procides a lightweight, generic implementation of Raft's replicated log abstraction.
+It maintains an ordered sequence of log entries and two associated snapshots representing the state of the replicated state machine.
+
+\subsubsection{Design Overview}
+The core type \texttt{Log[E, S]} is a parameter over:
+\begin{itemize}
+    \item \textbf{E}: the entry type (application-specific commands).
+    \item \textbf{S}: a type implementing the \texttt{Snapshot[E, S]} interface, representing the materialized state after applying entries.
+\end{itemize}
+
+Each log instance tracks:
+\begin{itemize}
+    \item \texttt{headSnapshot}: a snapshot representing the state up to the first entry in the log.
+    \item \texttt{tailSnapshot}: a snapshot continously updates as new entries are appended.
+    \item \texttt{realFirstIndex}: the global index of the first log entry after squashing or compaction.
+    \item \texttt{entries}: an in-memory slice of remaining unapplied entries.
+\end{itemize}
+
+\subsubsection{Snapshot Interface}
+The \texttt{Snapshot} interface defines two generic methods:
+\begin{verbatim}
+    ApplyEntry(Entry)
+    Clone() Self
+\end{verbatim}
+\textbf{ApplyEntry} mutates the snapshot by applying an entry's effects, 
+while \textbf{Clone} ensures that new logs or truncations can safely copy snapshot state.
+
+\subsection{Log Initialization}
+\texttt{NewLog(initialSnapshot, indexOffset)} creates a new log from an existing snapshot.
+The constructor clones the snapshot for the head (persistent state) and it reuses it as the tail (mutable state).
+The \texttt{realFirstIndex} tracks the absolute position of the first entry, allowing the log to appear contiguous across truncations.
+
+\subsubsection{Appending Entries}
+\texttt{Append(entry)} performs two actions atomically:
+\begin{enumerate}
+    \item Applies the new entry to the tail snapshot via \texttt{ApplyEntry}, keeping the in-memory snapshot consistent.
+    \iitem Appends the entry to the \texttt{entries} slice.
+\end{enumerate}
+This ensures O(1) amortized append performance while keeping the latest snapshot always consistent with all entries applied so far.
+
+\subsubsection(Snapshotting and Compaction)
+To avoid excessive growth of the log, the Snapshot method supports selective compaction:
+\begin{itemize}
+    \item \texttt{SquashFirstN(n)} applies and removes the first \texttt{n} entries from the log, merging them into \texttt{headSnapshot} and incrementing \texttt{realFirstIndex}.
+    \item \texttt{SquashUntil(predicate)} squashes all entries up to (but not including) the first entry matching the given predicate.
+\end{itemize}
+This method follow's Raft's snapshotting behavior (\S7 of the Raft paper) without persistent storage: once entries are safely replicated and applied by all follower, they can be compacted.
+
+
 \subsection{Transport and Peer Topology}
 \texttt{connectToPeers} creates long-lived gRPC client stubs
 (\texttt{raftpb.ElectionClient}) to all peers listed in \texttt{peers: map[NodeId]string}.
@@ -249,6 +298,7 @@ These stubs are stored in \texttt{s.peerConns}.
 
 \section{Demonstration}
 \lipsum[1]
+
 
 \section{Performance}
 \lipsum[1]
