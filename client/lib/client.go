@@ -5,6 +5,7 @@ import (
 
 	clientapi "github.com/djsurt/monkey-minder/common/proto"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 type Version int64
@@ -24,7 +25,7 @@ type Client struct {
 // MonkeyMinder server using a gRPC BIDI streaming client.
 // Returns an error if the grpcClient fails to create a session.
 func NewClient(ctx context.Context, target string) (client *Client, err error) {
-	gprcConn, err := grpc.NewClient(target)
+	gprcConn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return
 	}
@@ -40,6 +41,7 @@ func NewClient(ctx context.Context, target string) (client *Client, err error) {
 		grpcConn:   gprcConn,
 		grpcClient: &grpcClient,
 		session:    session,
+		chans:      make(map[uint64]chan<- *clientapi.ServerResponse),
 	}
 
 	go client.handleResponses()

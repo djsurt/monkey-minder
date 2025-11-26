@@ -62,6 +62,7 @@ sendLoop:
 		case err = <-recvError:
 			break sendLoop
 		case request := <-requestChan:
+			log.Printf("Received request: %v\n", request)
 		}
 	}
 
