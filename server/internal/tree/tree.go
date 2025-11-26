@@ -11,6 +11,7 @@ import (
 type ZNode struct {
 	Name     string
 	Data     string
+	Version  int64
 	Children map[string]*ZNode
 }
 
@@ -48,6 +49,7 @@ func (t *Tree) Create(p string, data string) error {
 				curr.Children[part] = &ZNode{
 					Name:     part,
 					Data:     data,
+					Version:  0,
 					Children: make(map[string]*ZNode),
 				}
 				return nil
@@ -90,6 +92,7 @@ func (t *Tree) Update(p string, data string) error {
 		return errors.New("node not found")
 	}
 	node.Data = data
+	// node.Version++
 	return nil
 }
 
@@ -129,8 +132,9 @@ func cloneNode(node *ZNode) *ZNode {
 
 	// Create new node with copied data
 	newNode := &ZNode{
-		Name:     node.Name,
-		Data:     node.Data,
+		Name: node.Name,
+		Data: node.Data,
+		// Version:  node.Version,
 		Children: make(map[string]*ZNode),
 	}
 
