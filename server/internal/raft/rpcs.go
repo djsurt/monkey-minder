@@ -117,12 +117,13 @@ func (s *RaftServer) doCommonAE(request *raftpb.AppendEntriesRequest) (
 	// If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index
 	// of last new entry)
 	leaderCommit := raftlog.Index(request.LeaderCommit)
-	if leaderCommit > s.commitIdx {
+	commitIdx := s.log.GetCommitIndex()
+	if leaderCommit > commitIdx {
 		lastIdx := s.log.IndexOfLast()
-		s.commitIdx = min(leaderCommit, lastIdx)
+		commitIdx = min(leaderCommit, lastIdx)
 	}
 
-	err := s.log.Commit(leaderCommit)
+	err := s.log.Commit(commitIdx)
 	if err != nil {
 		log.Panicf("Error committing log entries: %v\n", err)
 	}
