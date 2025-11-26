@@ -64,8 +64,8 @@ func (c *Create) DoMessage(currentState *tree.Tree) (*clientapi.ServerResponse, 
 	}
 
 	response := &clientapi.ServerResponse{
-		Success: true,
-		Data:    &c.data,
+		Succeeded: true,
+		Data:      &c.data,
 	}
 
 	return response, []*raftpb.LogEntry{entry}
@@ -92,7 +92,7 @@ func (d *Delete) IsLeaderOnly() bool {
 func (d *Delete) DoMessage(currentState *tree.Tree) (*clientapi.ServerResponse, []*raftpb.LogEntry) {
 	_, err := currentState.Get(d.path)
 	if err != nil {
-		return &clientapi.ServerResponse{Success: false}, nil
+		return &clientapi.ServerResponse{Succeeded: false}, nil
 	}
 
 	entry := &raftpb.LogEntry{
@@ -100,7 +100,7 @@ func (d *Delete) DoMessage(currentState *tree.Tree) (*clientapi.ServerResponse, 
 		TargetPath: d.path,
 	}
 
-	return &clientapi.ServerResponse{Success: true}, []*raftpb.LogEntry{entry}
+	return &clientapi.ServerResponse{Succeeded: true}, []*raftpb.LogEntry{entry}
 }
 
 func (d *Delete) WatchTest(entry *raftpb.LogEntry) bool {
@@ -126,7 +126,7 @@ func (e *Exists) DoMessage(currentState *tree.Tree) (*clientapi.ServerResponse, 
 	exists := err == nil
 
 	response := &clientapi.ServerResponse{
-		Exists: exists,
+		Succeeded: exists,
 	}
 
 	return response, nil
@@ -143,7 +143,7 @@ func (e *Exists) WatchTest(entry *raftpb.LogEntry) bool {
 func (e *Exists) DoMessageWatch(currentState *tree.Tree) *clientapi.ServerResponse {
 	_, err := currentState.Get(e.path)
 	return &clientapi.ServerResponse{
-		Exists: err == nil,
+		Succeeded: err == nil,
 	}
 }
 
@@ -165,6 +165,7 @@ func (m *GetData) DoMessage(currentState *tree.Tree) (
 ) {
 	// Never need to apply new entries for a read
 	newEntries = nil
+	response = &clientapi.ServerResponse{}
 
 	data, err := currentState.Get(m.path)
 	if err != nil {
@@ -209,6 +210,7 @@ func (m *SetData) DoMessage(currentState *tree.Tree) (
 	response *clientapi.ServerResponse,
 	newEntries []*raftpb.LogEntry,
 ) {
+	response = &clientapi.ServerResponse{}
 	// First check if the node exists
 	version, err := currentState.GetVersion(m.path)
 	if err != nil {
@@ -258,6 +260,7 @@ func (m *GetChildren) DoMessage(currentState *tree.Tree) (
 	response *clientapi.ServerResponse,
 	newEntries []*raftpb.LogEntry,
 ) {
+	response = &clientapi.ServerResponse{}
 	children, err := currentState.GetChildren(m.path)
 	if err != nil {
 		response.Succeeded = false
