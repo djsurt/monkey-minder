@@ -39,17 +39,17 @@ type messageId uint64
 type Version int64
 
 type SimpleMessageCommon struct {
-	id messageId
+	Id messageId
 }
 
 type WatchMessageCommon struct {
-	watchId messageId
+	WatchId messageId
 }
 
 type Create struct {
 	SimpleMessageCommon
-	path string
-	data string
+	Path string
+	Data string
 }
 
 func (c *Create) IsLeaderOnly() bool {
@@ -59,13 +59,13 @@ func (c *Create) IsLeaderOnly() bool {
 func (c *Create) DoMessage(currentState *tree.Tree) (*clientapi.ServerResponse, []*raftpb.LogEntry) {
 	entry := &raftpb.LogEntry{
 		Kind:       raftpb.LogEntryType_CREATE,
-		TargetPath: c.path,
-		Value:      c.data,
+		TargetPath: c.Path,
+		Value:      c.Data,
 	}
 
 	response := &clientapi.ServerResponse{
 		Succeeded: true,
-		Data:      &c.data,
+		Data:      &c.Data,
 	}
 
 	return response, []*raftpb.LogEntry{entry}
@@ -81,8 +81,8 @@ func (c *Create) DoMessageWatch(currentState *tree.Tree) *clientapi.ServerRespon
 
 type Delete struct {
 	SimpleMessageCommon
-	path    string
-	version Version
+	Path    string
+	Version Version
 }
 
 func (d *Delete) IsLeaderOnly() bool {
@@ -90,14 +90,14 @@ func (d *Delete) IsLeaderOnly() bool {
 }
 
 func (d *Delete) DoMessage(currentState *tree.Tree) (*clientapi.ServerResponse, []*raftpb.LogEntry) {
-	_, err := currentState.Get(d.path)
+	_, err := currentState.Get(d.Path)
 	if err != nil {
 		return &clientapi.ServerResponse{Succeeded: false}, nil
 	}
 
 	entry := &raftpb.LogEntry{
 		Kind:       raftpb.LogEntryType_DELETE,
-		TargetPath: d.path,
+		TargetPath: d.Path,
 	}
 
 	return &clientapi.ServerResponse{Succeeded: true}, []*raftpb.LogEntry{entry}
@@ -114,7 +114,7 @@ func (d *Delete) DoMessageWatch(currentState *tree.Tree) *clientapi.ServerRespon
 type Exists struct {
 	SimpleMessageCommon
 	WatchMessageCommon
-	path string
+	Path string
 }
 
 func (e *Exists) IsLeaderOnly() bool {
@@ -122,7 +122,7 @@ func (e *Exists) IsLeaderOnly() bool {
 }
 
 func (e *Exists) DoMessage(currentState *tree.Tree) (*clientapi.ServerResponse, []*raftpb.LogEntry) {
-	_, err := currentState.Get(e.path)
+	_, err := currentState.Get(e.Path)
 	exists := err == nil
 
 	response := &clientapi.ServerResponse{
@@ -133,7 +133,7 @@ func (e *Exists) DoMessage(currentState *tree.Tree) (*clientapi.ServerResponse, 
 }
 
 func (e *Exists) WatchTest(entry *raftpb.LogEntry) bool {
-	if entry.TargetPath != e.path {
+	if entry.TargetPath != e.Path {
 		return false
 	}
 	// This watch fires on CREATE and DELETE events
@@ -141,7 +141,7 @@ func (e *Exists) WatchTest(entry *raftpb.LogEntry) bool {
 }
 
 func (e *Exists) DoMessageWatch(currentState *tree.Tree) *clientapi.ServerResponse {
-	_, err := currentState.Get(e.path)
+	_, err := currentState.Get(e.Path)
 	return &clientapi.ServerResponse{
 		Succeeded: err == nil,
 	}
@@ -150,7 +150,7 @@ func (e *Exists) DoMessageWatch(currentState *tree.Tree) *clientapi.ServerRespon
 type GetData struct {
 	SimpleMessageCommon
 	WatchMessageCommon
-	path string
+	Path string
 }
 
 func (m *GetData) IsLeaderOnly() bool {
@@ -167,7 +167,7 @@ func (m *GetData) DoMessage(currentState *tree.Tree) (
 	newEntries = nil
 	response = &clientapi.ServerResponse{}
 
-	data, err := currentState.Get(m.path)
+	data, err := currentState.Get(m.Path)
 	if err != nil {
 		response.Succeeded = false
 		return
@@ -179,7 +179,7 @@ func (m *GetData) DoMessage(currentState *tree.Tree) (
 
 // If the entry modifies the value of m.path, returns true.
 func (m *GetData) WatchTest(entry *raftpb.LogEntry) bool {
-	isMyTarget := m.path == entry.TargetPath
+	isMyTarget := m.Path == entry.TargetPath
 	isModification := (entry.Kind == raftpb.LogEntryType_UPDATE ||
 		entry.Kind == raftpb.LogEntryType_DELETE)
 
@@ -194,9 +194,9 @@ func (m *GetData) DoMessageWatch(currentState *tree.Tree) (
 
 type SetData struct {
 	SimpleMessageCommon
-	path    string
-	data    string
-	version Version
+	Path    string
+	Data    string
+	Version Version
 }
 
 func (m *SetData) IsLeaderOnly() bool {
@@ -212,14 +212,14 @@ func (m *SetData) DoMessage(currentState *tree.Tree) (
 ) {
 	response = &clientapi.ServerResponse{}
 	// First check if the node exists
-	version, err := currentState.GetVersion(m.path)
+	version, err := currentState.GetVersion(m.Path)
 	if err != nil {
 		response.Succeeded = false
 		return
 	}
 
 	// Check version number.
-	if m.version != -1 && m.version != Version(version) {
+	if m.Version != -1 && m.Version != Version(version) {
 		response.Succeeded = false
 		return
 	}
@@ -227,8 +227,8 @@ func (m *SetData) DoMessage(currentState *tree.Tree) (
 	response.Succeeded = true
 	newEntries = append(newEntries, &raftpb.LogEntry{
 		Kind:       raftpb.LogEntryType_UPDATE,
-		TargetPath: m.path,
-		Value:      m.data,
+		TargetPath: m.Path,
+		Value:      m.Data,
 	})
 	return
 }
@@ -246,7 +246,7 @@ func (m *SetData) DoMessageWatch(currentState *tree.Tree) (
 type GetChildren struct {
 	SimpleMessageCommon
 	WatchMessageCommon
-	path string
+	Path string
 }
 
 // GetChildren can be served locally.
@@ -261,7 +261,7 @@ func (m *GetChildren) DoMessage(currentState *tree.Tree) (
 	newEntries []*raftpb.LogEntry,
 ) {
 	response = &clientapi.ServerResponse{}
-	children, err := currentState.GetChildren(m.path)
+	children, err := currentState.GetChildren(m.Path)
 	if err != nil {
 		response.Succeeded = false
 		return
@@ -276,11 +276,11 @@ func (m *GetChildren) DoMessage(currentState *tree.Tree) (
 // deleted, return true.
 func (m *GetChildren) WatchTest(entry *raftpb.LogEntry) bool {
 	// If the parent is deleted, this should trigger
-	if entry.TargetPath == m.path && entry.Kind == raftpb.LogEntryType_DELETE {
+	if entry.TargetPath == m.Path && entry.Kind == raftpb.LogEntryType_DELETE {
 		return true
 	}
 
-	suffix, found := strings.CutPrefix(entry.TargetPath, m.path+"/")
+	suffix, found := strings.CutPrefix(entry.TargetPath, m.Path+"/")
 	// Not a child of path
 	if !found {
 		return false
