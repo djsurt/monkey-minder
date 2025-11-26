@@ -87,6 +87,20 @@ sendLoop:
 	return
 }
 
+// TODO give this a better name
+func (s *RaftServer) clientMessageScheduler(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case msg := <-s.clientMessagesIncoming:
+			s.clientMessages <- msg
+			// need to not proceed to the next loop iteration until it is okay to execute a subsequent message
+			panic("TODO")
+		}
+	}
+}
+
 // Convert the incoming ClientRequest to the appropriate application message type
 func brokerMessage(req *clientapi.ClientRequest) monkeyminder.ClientMessage {
 	id := monkeyminder.SimpleMessageCommon{

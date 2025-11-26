@@ -51,7 +51,11 @@ type RaftServer struct {
 	rvResponseChan    chan *raftpb.Vote
 	clientSessions    map[sessionId]*clientSession
 	clientSessNextUid atomic.Uint64
-	clientMessages    chan clientMsg
+	// intermediary, client msgs folded into one channel
+	clientMessagesIncoming chan clientMsg
+	// client msgs to actually be handled
+	clientMessages chan clientMsg
+	watches        *WatchManager
 }
 
 func NewRaftServer(port int, id NodeId, peers map[NodeId]string) *RaftServer {
@@ -62,12 +66,14 @@ func NewRaftServer(port int, id NodeId, peers map[NodeId]string) *RaftServer {
 		state: FOLLOWER,
 		term:  1,
 		// TODO should be loading from disk instead in the case where we do that
-		log:            raftlog.NewLog(tree.NewTree(), 0),
-		aeRequestChan:  make(chan *raftpb.AppendEntriesRequest),
-		aeResponseChan: make(chan *raftpb.AppendEntriesResult),
-		rvRequestChan:  make(chan *raftpb.VoteRequest),
-		rvResponseChan: make(chan *raftpb.Vote),
-		clientMessages: make(chan clientMsg),
+		log:                    raftlog.NewLog(tree.NewTree(), 0),
+		aeRequestChan:          make(chan *raftpb.AppendEntriesRequest),
+		aeResponseChan:         make(chan *raftpb.AppendEntriesResult),
+		rvRequestChan:          make(chan *raftpb.VoteRequest),
+		rvResponseChan:         make(chan *raftpb.Vote),
+		clientMessages:         make(chan clientMsg),
+		clientMessagesIncoming: make(chan clientMsg),
+		watches:                NewWatchManager(),
 	}
 }
 
@@ -133,6 +139,7 @@ func (s *RaftServer) Serve() error {
 	// Start stateMachineLoop
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	defer cancelFunc()
+	go s.clientMessageScheduler(ctx)
 	go s.doLoop(ctx)
 
 	// Begin serving ElectionServer RPCs
