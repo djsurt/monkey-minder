@@ -25,7 +25,7 @@ message ClientRequest {
   // provided on: CREATE | SETDATA
   optional string data = 6;
   // provided on: DELETE | SETDATA
-  uint64 version = 7;
+  int64 version = 7;
 }
 
 
