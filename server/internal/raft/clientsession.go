@@ -86,3 +86,58 @@ sendLoop:
 
 	return
 }
+
+// Convert the incoming ClientRequest to the appropriate application message type
+func brokerMessage(req *clientapi.ClientRequest) monkeyminder.ClientMessage {
+	id := monkeyminder.SimpleMessageCommon{
+		Id: monkeyminder.MessageId(req.Id),
+	}
+	watchId := monkeyminder.WatchMessageCommon{
+		WatchId: monkeyminder.MessageId(req.WatchId),
+	}
+
+	var result monkeyminder.ClientMessage
+
+	switch req.Kind {
+	case clientapi.RequestType_CREATE:
+		result = &monkeyminder.Create{
+			SimpleMessageCommon: id,
+			Path:                *req.Path,
+			Data:                *req.Data,
+		}
+	case clientapi.RequestType_DELETE:
+		result = &monkeyminder.Delete{
+			SimpleMessageCommon: id,
+			Path:                *req.Path,
+			Version:             monkeyminder.Version(req.Version),
+		}
+	case clientapi.RequestType_EXISTS:
+		result = &monkeyminder.Exists{
+			SimpleMessageCommon: id,
+			WatchMessageCommon:  watchId,
+			Path:                *req.Path,
+		}
+	case clientapi.RequestType_GETDATA:
+		result = &monkeyminder.GetData{
+			SimpleMessageCommon: id,
+			WatchMessageCommon:  watchId,
+			Path:                *req.Path,
+		}
+	case clientapi.RequestType_SETDATA:
+		result = &monkeyminder.SetData{
+			SimpleMessageCommon: id,
+			Path:                *req.Path,
+			Data:                *req.Data,
+			Version:             monkeyminder.Version(req.Version),
+		}
+	case clientapi.RequestType_GETCHILDREN:
+		result = &monkeyminder.GetChildren{
+			SimpleMessageCommon: id,
+			WatchMessageCommon:  watchId,
+			Path:                *req.Path,
+		}
+	case clientapi.RequestType_UNSPECIFIED:
+		panic("Unspecified")
+	}
+	return result
+}
