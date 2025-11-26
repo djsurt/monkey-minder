@@ -77,7 +77,7 @@ sendLoop:
 			break sendLoop
 		case request := <-requestChan:
 			log.Printf("Received request: %v\n", request)
-			s.clientMessages <- clientMsg{
+			s.clientMessagesIncoming <- clientMsg{
 				sessionId: sess.uid,
 				msg:       brokerMessage(request),
 			}
