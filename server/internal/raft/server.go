@@ -9,6 +9,7 @@ import (
 	"net"
 	"time"
 
+	clientapi "github.com/djsurt/monkey-minder/common/proto"
 	raftlog "github.com/djsurt/monkey-minder/server/internal/log"
 	tree "github.com/djsurt/monkey-minder/server/internal/tree"
 	raftpb "github.com/djsurt/monkey-minder/server/proto/raft"
@@ -31,6 +32,7 @@ const (
 
 type RaftServer struct {
 	raftpb.UnimplementedRaftServer
+	clientapi.UnimplementedApiServer
 	Port           int
 	Id             NodeId
 	peers          map[NodeId]string
@@ -45,6 +47,9 @@ type RaftServer struct {
 	aeResponseChan chan *raftpb.AppendEntriesResult
 	rvRequestChan  chan *raftpb.VoteRequest
 	rvResponseChan chan *raftpb.Vote
+	clientSessions []*clientSession
+	// channel to pass new client sessions in on
+	registerClientSession chan *clientSession
 }
 
 func NewRaftServer(port int, id NodeId, peers map[NodeId]string) *RaftServer {
@@ -60,6 +65,7 @@ func NewRaftServer(port int, id NodeId, peers map[NodeId]string) *RaftServer {
 		aeResponseChan: make(chan *raftpb.AppendEntriesResult),
 		rvRequestChan:  make(chan *raftpb.VoteRequest),
 		rvResponseChan: make(chan *raftpb.Vote),
+		clientSessions: make([]*clientSession, 0),
 	}
 }
 
@@ -114,6 +120,7 @@ func (s *RaftServer) Serve() error {
 	// Create & register gRPC server
 	s.grpcServer = grpc.NewServer()
 	raftpb.RegisterRaftServer(s.grpcServer, s)
+	clientapi.RegisterApiServer(s.grpcServer, s)
 
 	// Create peer connections
 	err = s.connectToPeers()
