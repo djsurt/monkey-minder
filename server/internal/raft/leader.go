@@ -198,6 +198,8 @@ func (s *RaftServer) doLeader(ctx context.Context) {
 				TargetPath: "foo",
 				Value:      "qux",
 			})
+		case sess := <-s.registerClientSession:
+			s.doRegisterClientSession(sess)
 		}
 	}
 }

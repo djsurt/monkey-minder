@@ -11,6 +11,7 @@ import (
 )
 
 type clientSession struct {
+	uid          uint64
 	isLive       bool
 	responseChan chan<- *clientapi.ServerResponse
 }
@@ -70,5 +71,8 @@ sendLoop:
 	return
 }
 
-func (s *RaftServer) doClientSessionCommon() {
+func (s *RaftServer) doRegisterClientSession(incomingSession *clientSession) {
+	incomingSession.uid = s.clientSessNextUid
+	s.clientSessNextUid++
+	s.clientSessions = append(s.clientSessions, incomingSession)
 }

@@ -51,6 +51,7 @@ type RaftServer struct {
 	clientSessions []*clientSession
 	// channel to pass new client sessions in on
 	registerClientSession chan *clientSession
+	clientSessNextUid     uint64
 }
 
 func NewRaftServer(port int, id NodeId, peers map[NodeId]string) *RaftServer {
