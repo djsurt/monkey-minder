@@ -34,6 +34,9 @@ func (s *RaftServer) doFollower(ctx context.Context) {
 				s.votedFor = 0
 			}
 			electionTimer = getNewElectionTimer()
+
+		case sess := <-s.registerClientSession:
+			s.doRegisterClientSession(sess)
 		}
 	}
 }
