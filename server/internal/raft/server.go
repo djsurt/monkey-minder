@@ -55,7 +55,8 @@ type RaftServer struct {
 	clientMessagesIncoming chan clientMsg
 	// client msgs to actually be handled
 	clientMessages chan clientMsg
-	watches        *WatchManager
+	clientLeaderMessageDone chan struct{}
+	watches                 *WatchManager
 }
 
 func NewRaftServer(port int, id NodeId, peers map[NodeId]string) *RaftServer {
