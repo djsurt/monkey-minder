@@ -7,7 +7,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-type Version uint64
+type Version int64
 
 type Client struct {
 	ctx context.Context
@@ -130,7 +130,7 @@ func (client *Client) Delete(path string, version Version) <-chan struct{} {
 		Kind:    clientapi.RequestType_DELETE,
 		Id:      client.nextId(),
 		Path:    &path,
-		Version: uint64(version),
+		Version: int64(version),
 	}
 	onComplete := setupCallbackChannel(
 		client,
@@ -179,7 +179,7 @@ func (client *Client) SetData(path string, data string, version Version) <-chan 
 		Id:      client.nextId(),
 		Path:    &path,
 		Data:    &data,
-		Version: uint64(version),
+		Version: int64(version),
 	}
 	onComplete := setupCallbackChannel(
 		client,
