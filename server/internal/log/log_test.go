@@ -27,15 +27,30 @@ func assertEq[V comparable](t *testing.T, val V, expected V) {
 	}
 }
 
+func errorIfError(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Error(err)
+	}
+}
+
 func TestLog(t *testing.T) {
 	log := NewLog(make(simpleSnapshot), 0)
 	assertEq(t, log.IndexBeforeFirst(), Index(0))
 	assertEq(t, log.IndexAfterLast(), Index(1))
 
+	check, err := log.NewCheckpointAt(log.IndexOfLast())
+	errorIfError(t, err)
+
 	log.Append(simpleEntry{"a", 1})
 	assertEq(t, log.LenLogical(), 1)
 	assertEq(t, log.IndexBeforeFirst(), Index(0))
 	assertEq(t, log.IndexAfterLast(), Index(2))
+
+	assertEq(t, check.Index(), Index(0))
+	errorIfError(t, check.AdvanceBy(1))
+	assertEq(t, check.Index(), Index(1))
+	assertEq(t, (*check.Data())["a"], 1)
 
 	log.Append(simpleEntry{"a", 2})
 	assertEq(t, log.LenLogical(), 2)
