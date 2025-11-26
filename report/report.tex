@@ -130,6 +130,20 @@ only enqueue requests on channels and block waiting for responses, which keeps R
 changes confined to the state machine goroutine. Parallelism is used only for outbound RPCs
 (e.g, parallel vote requests and AppendEntries to followers), ensuring a simple, mostly single-threaded
 correctness story while still utilizing concurrency for I/O.
+
+\textbf{Quality of Service}:
+Randomized election timeouts limit unecessary split vites, while periodic heartbeats prevent
+unnecessary elections during normal operation. The log module supports compaction (squashing)
+and snapshotting so that old entries can be removed once safely replicated and applied, which
+bounds memory usage and keeps replication latency low during long-running workloads.
+
+\textbf{Scalability}:
+The system scales horizontally by adding more Raft servers to the cluster. Clients talk to
+any node in the cluster(TODO: MIGHT NEED TO CHANGE THIS). Reads and writes are internally forwarded
+to the current leader, which serializes updates and replicates them to followers using AppendEntries.
+Because the replicated log is generic, different state machines can be plugged in to support different
+workloads without changing the consensus layer.
+
 % \begin{figure}[h]
 %     \centering
 %     \includegraphics[width=2.5in]{test-uml.mmd.pdf}
