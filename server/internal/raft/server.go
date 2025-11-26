@@ -41,8 +41,6 @@ type RaftServer struct {
 	term           Term
 	votedFor       NodeId
 	log            Log
-	commitIdx      raftlog.Index
-	tree           *tree.Tree
 	aeRequestChan  chan *raftpb.AppendEntriesRequest
 	aeResponseChan chan *raftpb.AppendEntriesResult
 	rvRequestChan  chan *raftpb.VoteRequest
