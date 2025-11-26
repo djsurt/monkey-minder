@@ -21,7 +21,7 @@ type clientSession struct {
 
 type clientMsg struct {
 	sessionId sessionId
-	msg       *monkeyminder.ClientMessage
+	msg       monkeyminder.ClientMessage
 }
 
 func (s *RaftServer) Session(server grpc.BidiStreamingServer[clientapi.ClientRequest, clientapi.ServerResponse]) (err error) {
@@ -79,7 +79,7 @@ sendLoop:
 			log.Printf("Received request: %v\n", request)
 			s.clientMessages <- clientMsg{
 				sessionId: sess.uid,
-				msg:       panic("TODO: convert it"),
+				msg:       brokerMessage(request),
 			}
 		}
 	}
