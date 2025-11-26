@@ -189,12 +189,54 @@ func (m *GetData) DoMessageWatch(currentState *tree.Tree) (
 	panic("Not implemented!")
 }
 
-// TODO: implement ClientMessage
 type SetData struct {
 	SimpleMessageCommon
 	path    string
 	data    string
 	version Version
+}
+
+func (m *SetData) IsLeaderOnly() bool {
+	return true
+}
+
+// Update the value of m.path to data if version == version.
+// Fails if the version number doesn't match or if the path doesn't
+// exist.
+func (m *SetData) DoMessage(currentState *tree.Tree) (
+	response *clientapi.ServerResponse,
+	newEntries []*raftpb.LogEntry,
+) {
+	// First check if the node exists
+	version, err := currentState.GetVersion(m.path)
+	if err != nil {
+		response.Succeeded = false
+		return
+	}
+
+	// Check version number.
+	if m.version != -1 && m.version != Version(version) {
+		response.Succeeded = false
+		return
+	}
+
+	response.Succeeded = true
+	newEntries = append(newEntries, &raftpb.LogEntry{
+		Kind:       raftpb.LogEntryType_UPDATE,
+		TargetPath: m.path,
+		Value:      m.data,
+	})
+	return
+}
+
+func (m *SetData) WatchTest(entry *raftpb.LogEntry) bool {
+	return false
+}
+
+func (m *SetData) DoMessageWatch(currentState *tree.Tree) (
+	response *clientapi.ServerResponse,
+) {
+	panic("SetData does not support watches")
 }
 
 // TODO: implement ClientMessage
