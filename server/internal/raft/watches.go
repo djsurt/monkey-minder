@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"slices"
 	"sync"
 
 	raftpb "github.com/djsurt/monkey-minder/server/proto/raft"
@@ -35,5 +36,14 @@ func (handler *WatchManager) SubmitEntry(committedEntry *raftpb.LogEntry) {
 	handler.lock.Lock()
 	defer handler.lock.Unlock()
 
-	panic("TODO: check predicates, send notifs, retain unalerted watches")
+	handler.watches = slices.DeleteFunc(
+		handler.watches,
+		func(w watch) bool {
+			matched := w.predicate(committedEntry)
+			if matched {
+				w.onComplete <- struct{}{}
+			}
+			return matched
+		},
+	)
 }
