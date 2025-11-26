@@ -235,7 +235,7 @@ func (check Checkpoint[E, S]) AdvanceBy(amount uint64) error {
 
 func (check Checkpoint[E, S]) AdvanceTo(index Index) error {
 	ckpt := check.data()
-	if !check.log.HasEntryAt(index) || index == check.log.IndexBeforeFirst() {
+	if !(check.log.HasEntryAt(index) || index == check.log.IndexBeforeFirst()) {
 		return fmt.Errorf("cannot advance checkpoint by requested amount, that would send us past the end of the log!")
 	}
 	if index < ckpt.index {
@@ -247,4 +247,46 @@ func (check Checkpoint[E, S]) AdvanceTo(index Index) error {
 
 func (check Checkpoint[E, S]) Close() {
 	delete(check.log.checkpoints, check.id)
+}
+
+// WARNING: returned snapshot must be cloned before it is re-used elsewhere
+func (log *Log[E, S]) biggestSnapshotAtOrBelow(index Index) (S, Index) {
+	// FIXME implement non-trivial cases
+	return log.headSnapshot, log.IndexBeforeFirst()
+}
+
+// Truncate everything from [idx, ...)
+func (log *Log[E, S]) TruncateAt(index Index) error {
+	if index <= log.IndexBeforeFirst() {
+		return errors.New("cannot truncate to index which lies before the start of the log")
+	}
+	for _, ckpt := range log.checkpoints {
+		if ckpt.index >= index {
+			return errors.New("cannot truncate off entries at or beyond any still-live checkpoints")
+		}
+	}
+
+	// trivial case, don't need to truncate
+	if index >= log.IndexAfterLast() {
+		return nil
+	}
+
+	newSnapshot, baseIndex := log.biggestSnapshotAtOrBelow(index)
+	// clone the snapshot so we can modify it
+	newSnapshot = newSnapshot.Clone()
+	// apply any subsequent changes after that snapshot
+	for i := baseIndex + 1; i < index; i++ {
+		applyErr := newSnapshot.ApplyEntry(*log.getEntryAtUnchecked(i))
+		// can safely assume these won't fail to apply since we must have already successfully applied them before
+		if applyErr != nil {
+			panic(applyErr)
+		}
+	}
+
+	// truncate the actual internal list
+	log.entries = log.entries[:index-log.realFirstIndex.unwrap()]
+	// write the corrected snapshot
+	log.tailSnapshot = newSnapshot
+
+	return nil
 }

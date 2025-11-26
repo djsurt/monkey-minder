@@ -22,6 +22,7 @@ type NodeId uint64
 type NodeState uint
 
 type Log = raftlog.Log[*raftpb.LogEntry, *tree.Tree]
+type LogCheckpoint = raftlog.Checkpoint[*raftpb.LogEntry, *tree.Tree]
 
 const (
 	FOLLOWER NodeState = iota
@@ -41,7 +42,7 @@ type RaftServer struct {
 	term           Term
 	votedFor       NodeId
 	log            Log
-	commitIdx      raftlog.Index
+	commitPoint    *LogCheckpoint
 	tree           *tree.Tree
 	aeRequestChan  chan *raftpb.AppendEntriesRequest
 	aeResponseChan chan *raftpb.AppendEntriesResult
@@ -50,6 +51,11 @@ type RaftServer struct {
 }
 
 func NewRaftServer(port int, id NodeId, peers map[NodeId]string) *RaftServer {
+	log := raftlog.NewLog(tree.NewTree(), 0)
+	commitPoint, err := log.NewCheckpointAt(log.IndexBeforeFirst())
+	if err != nil {
+		panic(err)
+	}
 	return &RaftServer{
 		Port:  port,
 		Id:    id,
@@ -57,7 +63,8 @@ func NewRaftServer(port int, id NodeId, peers map[NodeId]string) *RaftServer {
 		state: FOLLOWER,
 		term:  1,
 		// TODO should be loading from disk instead in the case where we do that
-		log:            raftlog.NewLog(tree.NewTree(), 0),
+		log:            log,
+		commitPoint:    commitPoint,
 		aeRequestChan:  make(chan *raftpb.AppendEntriesRequest),
 		aeResponseChan: make(chan *raftpb.AppendEntriesResult),
 		rvRequestChan:  make(chan *raftpb.VoteRequest),

@@ -114,15 +114,10 @@ func (s *RaftServer) doCommonAE(request *raftpb.AppendEntriesRequest) (
 	// different terms), delete the existing entry and all that follow it
 	s.reconcileLogs(prevLogIdx, request.Entries)
 
-	// If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index
-	// of last new entry)
+	// commit up to leader's commit index, or an earlier index if we don't have enough new entries to reach all the way there
 	leaderCommit := raftlog.Index(request.LeaderCommit)
-	if leaderCommit > s.commitIdx {
-		lastIdx := s.log.IndexOfLast()
-		s.commitIdx = min(leaderCommit, lastIdx)
-	}
-
-	err := s.log.Commit(leaderCommit)
+	commitTo := min(leaderCommit, s.log.IndexOfLast())
+	err := s.commitPoint.AdvanceTo(commitTo)
 	if err != nil {
 		log.Panicf("Error committing log entries: %v\n", err)
 	}
