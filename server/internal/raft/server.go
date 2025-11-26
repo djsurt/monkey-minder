@@ -43,6 +43,7 @@ type RaftServer struct {
 	term           Term
 	votedFor       NodeId
 	log            Log
+	leader         NodeId
 	aeRequestChan  chan *raftpb.AppendEntriesRequest
 	aeResponseChan chan *raftpb.AppendEntriesResult
 	rvRequestChan  chan *raftpb.VoteRequest
