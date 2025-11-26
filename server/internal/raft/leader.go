@@ -1,3 +1,5 @@
+// This file contains the Leader loop and any utilites for implementing the
+// Leader lifecycle.
 package raft
 
 import (
@@ -9,7 +11,7 @@ import (
 	raftpb "github.com/djsurt/monkey-minder/server/proto/raft"
 )
 
-func (s *ElectionServer) doLeader(ctx context.Context) {
+func (s *RaftServer) doLeader(ctx context.Context) {
 	// TODO: "If command received from client: append entry to local log, respond after entry applied to state machine (§5.3)"
 	// TODO: "If there exists an N such that N > commitIndex, a majority of matchIndex[i] ≥ N, and log[N].term == currentTerm: set commitIndex = N (§5.3, §5.4)."
 
@@ -106,7 +108,7 @@ func (s *ElectionServer) doLeader(ctx context.Context) {
 			}
 		case req := <-s.rvRequestChan:
 			// incoming RequestVote
-			res, shouldAbdicate := s.doCommonRV(req, nil)
+			res, shouldAbdicate := s.doCommonRV(req)
 			s.rvResponseChan <- res
 			if shouldAbdicate {
 				log.Printf("Abdicating to FOLLOWER.\n")
@@ -131,7 +133,7 @@ func (s *ElectionServer) doLeader(ctx context.Context) {
 					entry, err := s.log.GetEntryAt(idx)
 					if err != nil {
 						// this should never happen and if it does we've seriously messed up the index handling logic
-						panic(err)
+						log.Panicf("Log index logic error: %v", err)
 					}
 					entriesToSend[idx-toSendFirst] = *entry
 				}
@@ -165,7 +167,7 @@ func (s *ElectionServer) doLeader(ctx context.Context) {
 				Entries:      entriesToSend,
 			}
 
-			go func(peerConn raftpb.ElectionClient, responses chan<- incomingAEResponse) {
+			go func(peerConn raftpb.RaftClient, responses chan<- incomingAEResponse) {
 				response, err := peerConn.AppendEntries(rpcCtx, req)
 				if err != nil {
 					return

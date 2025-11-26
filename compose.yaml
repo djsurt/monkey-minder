@@ -44,6 +44,7 @@ services:
         - path: ./Dockerfile
           action: rebuild
   dev-report:
+    platform: linux/amd64
     profiles: [dev-all]
     build:
       dockerfile: ./report/Dockerfile

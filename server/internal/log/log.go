@@ -2,6 +2,7 @@ package log
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 )
 
@@ -15,6 +16,7 @@ type Log[E any, S Snapshot[E, S]] struct {
 	tailSnapshot   S
 	realFirstIndex nonzeroIndex
 	entries        []E
+	commitIdx      Index
 }
 
 func NewLog[E any, S Snapshot[E, S]](
@@ -59,10 +61,41 @@ func (log *Log[Entry, _]) SquashUntil(predicate func(Entry) bool) (err error) {
 	return
 }
 
-// append a new entry to the log
+// Append (but do not commit) a new entry to the log
 func (log *Log[E, S]) Append(entry E) {
-	log.tailSnapshot.ApplyEntry(entry)
 	log.entries = append(log.entries, entry)
+}
+
+// Error for bounds checking an Index in the log.
+type OutOfBoundsError struct {
+	Index Index
+}
+
+func (e *OutOfBoundsError) Error() string {
+	return fmt.Sprintf("Index %d is out of bounds", e.Index)
+}
+
+// Commit a previously appended entry to the state machine
+// Returns an error if the idx given is beyond the length of the log,
+// or if any errors occurred in applying the entry to the state machine.
+func (log *Log[E, S]) Commit(idx Index) error {
+	if idx > log.IndexOfLast() {
+		return &OutOfBoundsError{idx}
+	}
+	for log.commitIdx < idx {
+		log.commitIdx++
+		entry, err := log.GetEntryAt(log.commitIdx)
+		if err != nil {
+			return err
+		}
+		log.tailSnapshot.ApplyEntry(*entry)
+	}
+	return nil
+}
+
+// Get the index of the last committed log entry. May be zero initially.
+func (log *Log[E, s]) GetCommitIndex() Index {
+	return log.commitIdx
 }
 
 // a snapshot at the current state of the log.
@@ -123,4 +156,26 @@ func (log *Log[E, S]) GetEntryLatest() (entryMaybe *E, idx Index) {
 	} else {
 		return nil, log.realFirstIndex.prior()
 	}
+}
+
+// Truncate everything from [idx, ...)
+// Panics if it tries to truncate an already committed index.
+func (log *Log[E, S]) TruncateAt(idx Index) error {
+	if idx <= log.commitIdx {
+		panic("Tried to truncate committed entries!")
+	}
+	if idx < log.realFirstIndex.unwrap() {
+		return errors.New("provided index lies below first actual entry of log")
+	}
+
+	if idx > log.IndexOfLast() {
+		//Nothing to truncate
+		return nil
+	}
+
+	//Position in entries slice to truncate at
+	//idx is the first entry to remove, so we keep everything before it
+	numToKeep := int(idx - log.realFirstIndex.unwrap())
+	log.entries = log.entries[:numToKeep]
+	return nil
 }
