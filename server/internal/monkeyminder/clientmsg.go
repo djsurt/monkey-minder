@@ -1,6 +1,8 @@
 package monkeyminder
 
 import (
+	"strings"
+
 	clientapi "github.com/djsurt/monkey-minder/common/proto"
 	"github.com/djsurt/monkey-minder/server/internal/tree"
 	raftpb "github.com/djsurt/monkey-minder/server/proto/raft"
@@ -267,12 +269,33 @@ func (m *GetChildren) DoMessage(currentState *tree.Tree) (
 	return
 }
 
+// If the entry mutates any the node's children, or if the node itself is
+// deleted, return true.
 func (m *GetChildren) WatchTest(entry *raftpb.LogEntry) bool {
+	// If the parent is deleted, this should trigger
+	if entry.TargetPath == m.path && entry.Kind == raftpb.LogEntryType_DELETE {
+		return true
+	}
+
+	suffix, found := strings.CutPrefix(entry.TargetPath, m.path+"/")
+	// Not a child of path
+	if !found {
+		return false
+	}
+
+	// Immediate children should have no more path to explore
+	result := strings.Split(suffix, "/")
+	// The entry's target is an immediate child of the path, we need to watch
+	// for any events on this child.
+	if len(result) == 1 {
+		return true
+	}
+
 	return false
 }
 
 func (m *GetChildren) DoMessageWatch(currentState *tree.Tree) (
 	response *clientapi.ServerResponse,
 ) {
-	panic("GetChildren does not support watches.")
+	panic("not implemented")
 }
