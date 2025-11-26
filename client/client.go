@@ -20,8 +20,11 @@ type Client struct {
 	chans      map[uint64]chan<- *clientapi.ServerResponse
 }
 
+// Create a new MonkeyMinder client that services all API calls to the
+// MonkeyMinder server using a gRPC BIDI streaming client.
+// Returns an error if the grpcClient fails to create a session.
 func NewClient(ctx context.Context, target string) (client *Client, err error) {
-	gprcConn, err := grpc.NewClient("localhost:9001")
+	gprcConn, err := grpc.NewClient(target)
 	if err != nil {
 		return
 	}
@@ -44,12 +47,13 @@ func NewClient(ctx context.Context, target string) (client *Client, err error) {
 	return
 }
 
+// Helper to get the (monotonically increasing) id for the next client request.
 func (client *Client) nextId() uint64 {
 	client.idCounter++
 	return client.idCounter
 }
 
-// gets the next id if cond is true, 0 otherwise
+// Gets the next id if cond is true, 0 otherwise
 func (client *Client) nextIdIf(cond bool) uint64 {
 	if cond {
 		return client.nextId()
@@ -59,14 +63,20 @@ func (client *Client) nextIdIf(cond bool) uint64 {
 }
 
 // this is a function instead of a method because golang hates me
-func setupCallbackChannel[T any](client *Client, id uint64, convertResponse func(*clientapi.ServerResponse) T, outputChannel chan T) <-chan T {
+func setupCallbackChannel[T any](
+	client *Client,
+	id uint64,
+	convertResponse func(*clientapi.ServerResponse) T,
+	outputChannel chan T,
+) <-chan T {
 	ch := make(chan *clientapi.ServerResponse)
 	client.chans[id] = ch
 	go func() { outputChannel <- convertResponse(<-ch) }()
 	return outputChannel
 }
 
-// handle responses from server
+// Response handler loop: handles responses from the server, routing incoming
+// responses to the receive channel of the request that initiated the request.
 func (client *Client) handleResponses() {
 	for {
 		resp, err := client.session.Recv()
@@ -86,7 +96,7 @@ func (client *Client) handleResponses() {
 	}
 }
 
-// send request to server
+// Sends a single MonkeyMinder request to the server.
 func (client *Client) doApi(request *clientapi.ClientRequest) {
 	err := client.session.Send(request)
 	if err != nil {
@@ -95,6 +105,7 @@ func (client *Client) doApi(request *clientapi.ClientRequest) {
 	}
 }
 
+// Creates a node at the given path with the provided data.
 func (client *Client) Create(path string, data string) <-chan string {
 	request := &clientapi.ClientRequest{
 		Kind: clientapi.RequestType_CREATE,
@@ -112,6 +123,8 @@ func (client *Client) Create(path string, data string) <-chan string {
 	return onComplete
 }
 
+// Deletes the node at the given path if the node's version is equal to the
+// provided version, or -1 if no version checking is required.
 func (client *Client) Delete(path string, version Version) <-chan struct{} {
 	request := &clientapi.ClientRequest{
 		Kind:    clientapi.RequestType_DELETE,
@@ -141,6 +154,8 @@ func getData_convertResponse(resp *clientapi.ServerResponse) NodeData {
 	}
 }
 
+// Get the value of the node at path. On an update, the server promises to
+// notify on the watchChan.
 func (client *Client) GetData(path string, watchChan chan NodeData) <-chan NodeData {
 	request := &clientapi.ClientRequest{
 		Kind:    clientapi.RequestType_GETDATA,
@@ -156,6 +171,8 @@ func (client *Client) GetData(path string, watchChan chan NodeData) <-chan NodeD
 	return onComplete
 }
 
+// Sets the node at the given path to data if the node's version is equal to
+// the provided version, or -1 if no version checking is required.
 func (client *Client) SetData(path string, data string, version Version) <-chan bool {
 	request := &clientapi.ClientRequest{
 		Kind:    clientapi.RequestType_GETDATA,
@@ -174,6 +191,8 @@ func (client *Client) SetData(path string, data string, version Version) <-chan 
 	return onComplete
 }
 
+// Get the values of all children of the node at path. On an update, the
+// server promises to notify on the watchChan.
 func (client *Client) GetChildren(path string, watchChan <-chan []string) <-chan []string {
 	request := &clientapi.ClientRequest{
 		Kind: clientapi.RequestType_GETCHILDREN,

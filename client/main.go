@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 
-	"github.com/djsurt/monkey-minder/client/internal/client"
+	"github.com/djsurt/monkey-minder/client"
 )
 
 func main() {
