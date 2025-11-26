@@ -72,20 +72,36 @@ cryptographic signatures, and from [9] S. Mane et. al which proposes additions t
 ZooKeeper which give it better resilience against Byzantine faults.
 
 \section{Goals and Motivation}
-Our project is a re-implementation of a subset of Zookeeper's core functionality using
-Golang and gRPC. Specifically, we implemented a tree-based data store service that
-can be replicated across an ensemble of nodes. The server uses Raft leader election
-algorithm to decide on a leader node. This leader node is responsible for ordering
-writes and using quorum based atomic broadcast to ensure writes are processed
-transactionally by all replicas.
+The goal of our project is to implement a distributed tree-based data store similar
+to Apache ZooKeeper using Golang. Like ZooKeeper, our service guarantees linearizable 
+writes while supporting read-heavy workloads by guaranteeing montonic reads.
+Developing such a service involves implementing protocols for leader election, 
+replication & consistency, and Lamport timestamps to provide causal ordering.
+The service must be fault-tolerant, robust to network partitions, and available to 
+many concurrent clients.
 
-This problem is interesting as ZooKeeper has been a fundamental building block of many
-distributed systems in the industry, including Apache's Hadoop, Spark, and Kafka projects,
-as well as Pinterest, Yahoo!, and Facebook [2 from the proposal]. By implementing this system ourselves,
-we gained a deep understanding of the core issues of wait-free coordination, replication,
-consistency, and leader election. Furthermore, now that the service is built, we have an implementation
-with which we can build less primitive distributed systems and more confidence in our abilities to handle
-the fundamental issues of fault tolerance, consistency, and consensus.
+For our implementation, we wanted to adhere to a few additional constraints. First,
+we chose to use Golang as our programming environment. Golang adopts the
+Communicating Sequential Processes (CSP) concurrency model, and we chose to fully
+embrace this paradigm in our implementation by avoiding locks, semaphores, and other
+concurrency primitives. Instead, we relied almost exclusively on Go's channel primitive
+for managing concurrent access to shared resources.
+
+Second, instead of Zab we chose to utilize the Raft consensus algorithm. While
+Zab and Raft are both equivalent to Paxos (**CITE**), Raft is more recent algorithm
+and used in popular services such as etcd and MongoDB (**CITE**). Additionally, 
+Raft claims to be a more understandable alternative to Paxos. This required us 
+to relax the guarantees of the Raft protocol, which requires total ordering of 
+both reads and writes.
+
+Third, we chose to use gRPC and Protocol buffers as our transport layer. gRPC is
+an RPC framework created by Google (**CITE**), and Protobufs are Google's language 
+independent serialization framework (**CITE**). We chose these tools due to their
+popularity in the industry and our desire to become acquainted with tools that
+we may encounter later in our careers.
+
+By building our project within these parameters, we hoped to gain practical
+experience navigating the unique challenges posed by distributed systems.
 
 \section{Challenges Addressed}
 \lipsum[1]
@@ -346,6 +362,7 @@ This method follow's Raft's snapshotting behavior (\S7 of the Raft paper) withou
 \texttt{connectToPeers} creates long-lived gRPC client stubs
 (\texttt{raftpb.ElectionClient}) to all peers listed in \texttt{peers: map[NodeId]string}.
 These stubs are stored in \texttt{s.peerConns}. 
+Derp.
 
 \section{Demonstration}
 \lipsum[1]
