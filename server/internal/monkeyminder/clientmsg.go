@@ -177,8 +177,7 @@ func (m *GetData) DoMessage(currentState *tree.Tree) (
 // If the entry modifies the value of m.path, returns true.
 func (m *GetData) WatchTest(entry *raftpb.LogEntry) bool {
 	isMyTarget := m.path == entry.TargetPath
-	isModification := (entry.Kind == raftpb.LogEntryType_CREATE ||
-		entry.Kind == raftpb.LogEntryType_UPDATE ||
+	isModification := (entry.Kind == raftpb.LogEntryType_UPDATE ||
 		entry.Kind == raftpb.LogEntryType_DELETE)
 
 	return isMyTarget && isModification
