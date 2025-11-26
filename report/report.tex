@@ -161,18 +161,51 @@ Because the replicated log is generic, different state machines can be plugged i
 workloads without changing the consensus layer.
 
 \textbf{Transparency}:
-Clients interact with the system as if it were a single, reliable ZooKeeper-like service with a heirarchical
-namespace. They are unaware of which node is currently the leader, when failovers occur, or how many replicas
+Clients interact with the system as if it were a single, ZooKeeper-like service with a heirarchical
+namespace. They are don't know which node is currently the leader, when failovers occur, or how many replicas
 exist in the cluster. Leader elecion, log replication, and commit-index management are all hidden behind the
 API, providing failure transparency and location transparency.
 
 \subsection{Key Components and Algorithms}
+
 \subsubsection{RaftServer and Node Roles}
 The \texttt{RaftServer} type represents a single Raft node. It maintains the node identity (\texttt{Id}), peer addresses,
 current role (\texttt{FOLLOWER}, \texttt{CANDIDATE}, \texttt{LEADER}), current term, the node it voted for,
 gRPC server state, a replicated log, and per-RPC channels for AppendEntries and RequestVote. 
 
+The lifecycle is driven by the \texttt{doLoop}, which dispatches to state-specific loops:
+\begin{itemize}
+    \item \texttt{doFollower}: waits for AppendEntries and RequestVote requests,
+    resetting its election timer on each valid interaction. If the time expires, the node
+    promotes itself to \texttt{CANDIDATE}.
+    \item \texttt{doCandidate}: increments its term, votes for itself, and sends parallel
+    RequestVote RPCs to all peers. It becomes \texttt{LEADER} upon winning a majority,
+    reverts to \texttt{FOLLOWER} if it sees a higher term, or restarts the election on timeout.
+    \item \texttt{doLeader}: manages per-follower replication pointers
+    (\texttt{nextIndex} and \texttt{matchIndex}), sends AppendEntries heartbearts and log entries,
+    and responds to vote and AppendEntries RPCs from other nodes, stepping down when 
+    observing a higher term.
+\end{itemize}
 
+\subsubsection{Log and Snapshot Module}
+The replicated log maintains:
+(i) a \texttt{headSnapshot} representing the state up to the first stored entry,
+(ii) a \texttt{tailSnapshot} that is updated as new entries are appended,
+(iii) an index offset for the first logical entry,
+(iv) the slice of entries, and
+(v) a commit index.
+
+Key operations include:
+\begin{itemize}
+    \item \texttt{Append}: add a new, uncommitted log entry.
+    \item \texttt{Commit}: advance the commit index and apply all entries up to 
+    that index to the tail snapshot, updating the state machine/
+    \item \texttt{GetEntryAt}, \texttt{GetEntryLatest}: inspect specific entries
+    or the most recent entry, used for Raft log-matching and vote comparisons.
+    \item \texttt{SquashFirstN} and \texttt{SquashUntil}: compact the log by merging
+    old entries into the head snapshot, freeing memory.
+    \item \texttt{TruncateAt}: delete uncommitted suffixes when reconciling divergent log with a new leader.
+\end{itemize}
 % \begin{figure}[h]
 %     \centering
 %     \includegraphics[width=2.5in]{test-uml.mmd.pdf}
