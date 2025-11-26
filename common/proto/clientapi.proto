@@ -1,0 +1,45 @@
+syntax = "proto3";
+package clientapi;
+
+option go_package = "github.com/djsurt/monkey-minder/common/proto/clientapi";
+
+
+enum RequestType {
+  UNSPECIFIED = 0;
+  CREATE = 1;
+  DELETE = 2;
+  EXISTS = 3;
+  GETDATA = 4;
+  SETDATA = 5;
+  GETCHILDREN = 6;
+}
+
+
+message ClientRequest {
+  RequestType kind = 1;
+  uint64 id = 2;
+  // if 0, no watch will be placed.
+  // if nonzero, a watch will be placed
+  uint64 watch_id = 4;
+  optional string path = 5;
+  // provided on: CREATE | SETDATA
+  optional string data = 6;
+  // provided on: DELETE | SETDATA
+  int64 version = 7;
+}
+
+
+message ServerResponse {
+  uint64 id = 1;
+  bool succeeded = 2;
+  optional string data = 3;
+  repeated string children = 4;
+  // provided on: GETDATA
+  uint64 version = 5;
+}
+
+
+// TODO give this a better name
+service Api {
+  rpc Session(stream ClientRequest) returns (stream ServerResponse);
+}

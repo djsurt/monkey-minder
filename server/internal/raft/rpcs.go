@@ -25,7 +25,7 @@ func (s *RaftServer) RequestVote(
 
 // When in the leader state, make an an AppendEntries either to update a
 // follower's log, or to send a heartbeat to the follower.
-// When in the follower state, respond to AppendEntries requests and udpate
+// When in the follower state, respond to AppendEntries requests and update
 // election timeout.
 func (s *RaftServer) AppendEntries(
 	ctx context.Context,
@@ -63,6 +63,11 @@ func (s *RaftServer) doCommonAE(request *raftpb.AppendEntriesRequest) (
 	if staleTerm {
 		s.updateTerm(Term(request.Term))
 		s.votedFor = 0
+	}
+
+	// Update the leader
+	if s.term == Term(request.Term) {
+		s.leader = NodeId(request.LeaderId)
 	}
 
 	response = &raftpb.AppendEntriesResult{

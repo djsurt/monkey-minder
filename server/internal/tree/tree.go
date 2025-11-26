@@ -11,6 +11,7 @@ import (
 type ZNode struct {
 	Name     string
 	Data     string
+	Version  int64
 	Children map[string]*ZNode
 }
 
@@ -48,6 +49,7 @@ func (t *Tree) Create(p string, data string) error {
 				curr.Children[part] = &ZNode{
 					Name:     part,
 					Data:     data,
+					Version:  0,
 					Children: make(map[string]*ZNode),
 				}
 				return nil
@@ -65,6 +67,30 @@ func (t *Tree) Get(p string) (string, error) {
 		return "", errors.New("node not found")
 	}
 	return node.Data, nil
+}
+
+// If the given path exists, retrieve the absolute path of each of its children.
+// May return an empty array if the node exists but has not children.
+// Throws an error if the node does not exist.
+func (t *Tree) GetChildren(p string) ([]string, error) {
+	parent := t.getNode(p)
+	if parent == nil {
+		return nil, errors.New("node not found")
+	}
+
+	var children []string
+	for _, child := range parent.Children {
+		children = append(children, p+"/"+child.Name)
+	}
+	return children, nil
+}
+
+func (t *Tree) GetVersion(p string) (int64, error) {
+	node := t.getNode(p)
+	if node == nil {
+		return 0, errors.New("node not found")
+	}
+	return node.Version, nil
 }
 
 func (t *Tree) getNode(p string) *ZNode {
@@ -90,6 +116,7 @@ func (t *Tree) Update(p string, data string) error {
 		return errors.New("node not found")
 	}
 	node.Data = data
+	node.Version++
 	return nil
 }
 
@@ -131,6 +158,7 @@ func cloneNode(node *ZNode) *ZNode {
 	newNode := &ZNode{
 		Name:     node.Name,
 		Data:     node.Data,
+		Version:  node.Version,
 		Children: make(map[string]*ZNode),
 	}
 
