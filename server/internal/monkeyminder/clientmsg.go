@@ -35,15 +35,15 @@ type ClientMessage interface {
 	DoMessageWatch(currentState *tree.Tree) (response *clientapi.ServerResponse)
 }
 
-type messageId uint64
+type MessageId uint64
 type Version int64
 
 type SimpleMessageCommon struct {
-	Id messageId
+	Id MessageId
 }
 
 type WatchMessageCommon struct {
-	WatchId messageId
+	WatchId MessageId
 }
 
 type Create struct {
