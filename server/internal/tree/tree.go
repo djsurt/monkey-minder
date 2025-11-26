@@ -69,7 +69,7 @@ func (t *Tree) Get(p string) (string, error) {
 	return node.Data, nil
 }
 
-// If the given path exists, retrieve all of it's children.
+// If the given path exists, retrieve the absolute path of each of its children.
 // May return an empty array if the node exists but has not children.
 // Throws an error if the node does not exist.
 func (t *Tree) GetChildren(p string) ([]string, error) {
@@ -80,7 +80,7 @@ func (t *Tree) GetChildren(p string) ([]string, error) {
 
 	var children []string
 	for _, child := range parent.Children {
-		children = append(children, child.Name)
+		children = append(children, p+"/"+child.Name)
 	}
 	return children, nil
 }
