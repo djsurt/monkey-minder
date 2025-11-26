@@ -69,6 +69,14 @@ func (t *Tree) Get(p string) (string, error) {
 	return node.Data, nil
 }
 
+func (t *Tree) GetVersion(p string) (int64, error) {
+	node := t.getNode(p)
+	if node == nil {
+		return 0, errors.New("node not found")
+	}
+	return node.Version, nil
+}
+
 func (t *Tree) getNode(p string) *ZNode {
 	p = normalize(p)
 	if p == "/" {
@@ -92,7 +100,7 @@ func (t *Tree) Update(p string, data string) error {
 		return errors.New("node not found")
 	}
 	node.Data = data
-	// node.Version++
+	node.Version++
 	return nil
 }
 
@@ -132,9 +140,9 @@ func cloneNode(node *ZNode) *ZNode {
 
 	// Create new node with copied data
 	newNode := &ZNode{
-		Name: node.Name,
-		Data: node.Data,
-		// Version:  node.Version,
+		Name:     node.Name,
+		Data:     node.Data,
+		Version:  node.Version,
 		Children: make(map[string]*ZNode),
 	}
 
