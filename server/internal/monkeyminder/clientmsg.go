@@ -88,8 +88,13 @@ func (d *Delete) IsLeaderOnly() bool {
 }
 
 func (d *Delete) DoMessage(currentState *tree.Tree) (*clientapi.ServerResponse, []*raftpb.LogEntry) {
-	_, err := currentState.Get(d.path)
+	version, err := currentState.GetVersion(d.path)
 	if err != nil {
+		return &clientapi.ServerResponse{Success: false}, nil
+	}
+
+	// Check version if specified (-1 means ignore version check)
+	if d.version != -1 && version != int64(d.version) {
 		return &clientapi.ServerResponse{Success: false}, nil
 	}
 
