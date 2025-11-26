@@ -91,8 +91,45 @@ the fundamental issues of fault tolerance, consistency, and consensus.
 \lipsum[1]
 
 \section{Design}
-\lipsum[1]
+Our design takes into account the distributed systems challenges of heterogeneity,
+openness, security, failure handling, concurrency, quality of service and scalability.
 
+\textbf{Heterogeneity}:
+We expose out service via gRPC with Protocol Buffers, which provides a language-agnostic, 
+platform-agnostic interface for clients to interact between clients and servers. The Raft
+server implements the \texttt{RaftServer} gRPC service and uses generated stubs on both the 
+server and client side, allowing future clients to be written in any language supported by
+gRPC without changing the core consensus implementation.[Have some sort of citation maybe].
+
+\textbf{Openness}:
+The system is designed as a set of composable modules: the replicated log (\texttt{Log}), the
+tree-based data store (\texttt{Tree}), and the Raft consensus layer (\texttt{RaftServer}). The
+log is generic over the entry snapshot types and only depends on an abstract \texttt{Snapshot}
+interface, so other state machines (besides our ZooKeeper-like tree) can be plugged in 
+without changing the Raft code.
+
+\textbf{Security}:
+At the transport layer we use gRPC, which supports mutual TLS for channel encryption and
+authentication. In the current prototype, we use insecure credentials for simplicity, but
+the design isolates transport setup inside \texttt{connectToPeers}, so adding TLS in the future
+will be straightforward.
+
+\textbf{Failure Handling}:
+Raft provides deterministic leader election and log replication under crash failures.
+The follower nodes use randomized election timeouts to avoid split votes, and step up to
+the candidate role when they stop hearing from a leader. Candidates send \texttt{RequestVote}
+RPCs in parallel and step own when they see a higher term, while leaders periodically
+send empty \texttt{AppendEntries} (heartbeats) and perform log backtracking and truncation when
+followers' logs diverge.
+
+\textbf{Concurrency}:
+Each node runs a single Raft loop(\texttt{doLoop}) that dispatches into role-specific
+loops (\texttt{doFollower}, \texttt{doCandidate}, \texttt{doLeader}). These loops serialize
+all consensus state transitions. RPC handlers for \texttt{RequestVote} and \texttt{AppendEntries}
+only enqueue requests on channels and block waiting for responses, which keeps Raft state
+changes confined to the state machine goroutine. Parallelism is used only for outbound RPCs
+(e.g, parallel vote requests and AppendEntries to followers), ensuring a simple, mostly single-threaded
+correctness story while still utilizing concurrency for I/O.
 % \begin{figure}[h]
 %     \centering
 %     \includegraphics[width=2.5in]{test-uml.mmd.pdf}
