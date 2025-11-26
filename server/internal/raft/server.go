@@ -34,25 +34,24 @@ const (
 type RaftServer struct {
 	raftpb.UnimplementedRaftServer
 	clientapi.UnimplementedApiServer
-	Port           int
-	Id             NodeId
-	peers          map[NodeId]string
-	state          NodeState
-	grpcServer     *grpc.Server
-	listener       net.Conn
-	peerConns      map[NodeId]raftpb.RaftClient
-	term           Term
-	votedFor       NodeId
-	log            Log
-	leader         NodeId
-	aeRequestChan  chan *raftpb.AppendEntriesRequest
-	aeResponseChan chan *raftpb.AppendEntriesResult
-	rvRequestChan  chan *raftpb.VoteRequest
-	rvResponseChan chan *raftpb.Vote
-	clientSessions []*clientSession
-	// channel to pass new client sessions in on
-	registerClientSession chan *clientSession
-	clientSessNextUid     atomic.Uint64
+	Port              int
+	Id                NodeId
+	peers             map[NodeId]string
+	state             NodeState
+	grpcServer        *grpc.Server
+	listener          net.Conn
+	peerConns         map[NodeId]raftpb.RaftClient
+	term              Term
+	votedFor          NodeId
+	log               Log
+	leader            NodeId
+	aeRequestChan     chan *raftpb.AppendEntriesRequest
+	aeResponseChan    chan *raftpb.AppendEntriesResult
+	rvRequestChan     chan *raftpb.VoteRequest
+	rvResponseChan    chan *raftpb.Vote
+	clientSessions    map[sessionId]*clientSession
+	clientSessNextUid atomic.Uint64
+	clientMessages    chan clientMsg
 }
 
 func NewRaftServer(port int, id NodeId, peers map[NodeId]string) *RaftServer {
@@ -68,7 +67,7 @@ func NewRaftServer(port int, id NodeId, peers map[NodeId]string) *RaftServer {
 		aeResponseChan: make(chan *raftpb.AppendEntriesResult),
 		rvRequestChan:  make(chan *raftpb.VoteRequest),
 		rvResponseChan: make(chan *raftpb.Vote),
-		clientSessions: make([]*clientSession, 0),
+		clientMessages: make(chan clientMsg),
 	}
 }
 

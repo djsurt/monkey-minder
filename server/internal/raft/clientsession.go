@@ -7,13 +7,21 @@ import (
 	"log"
 
 	clientapi "github.com/djsurt/monkey-minder/common/proto"
+	"github.com/djsurt/monkey-minder/server/internal/monkeyminder"
 	"google.golang.org/grpc"
 )
 
+type sessionId uint64
+
 type clientSession struct {
-	uid          uint64
+	uid          sessionId
 	isLive       bool
 	responseChan chan<- *clientapi.ServerResponse
+}
+
+type clientMsg struct {
+	sessionId sessionId
+	msg       *monkeyminder.ClientMessage
 }
 
 func (s *RaftServer) Session(server grpc.BidiStreamingServer[clientapi.ClientRequest, clientapi.ServerResponse]) (err error) {
@@ -22,6 +30,8 @@ func (s *RaftServer) Session(server grpc.BidiStreamingServer[clientapi.ClientReq
 	ctx := server.Context()
 	subCtx, cancel := context.WithCancel(ctx)
 
+	defer cancel()
+
 	responseChan := make(chan *clientapi.ServerResponse)
 	requestChan := make(chan *clientapi.ClientRequest)
 
@@ -29,10 +39,13 @@ func (s *RaftServer) Session(server grpc.BidiStreamingServer[clientapi.ClientReq
 	recvError := make(chan error)
 
 	sess := &clientSession{
+		uid:          sessionId(s.clientSessNextUid.Add(1)),
 		isLive:       true,
 		responseChan: responseChan,
 	}
-	s.registerClientSession <- sess
+	s.clientSessions[sess.uid] = sess
+
+	defer func() { sess.isLive = false }()
 
 	go func() {
 		for {
@@ -64,14 +77,12 @@ sendLoop:
 			break sendLoop
 		case request := <-requestChan:
 			log.Printf("Received request: %v\n", request)
+			s.clientMessages <- clientMsg{
+				sessionId: sess.uid,
+				msg:       panic("TODO: convert it"),
+			}
 		}
 	}
 
-	cancel()
 	return
-}
-
-func (s *RaftServer) doRegisterClientSession(incomingSession *clientSession) {
-	incomingSession.uid = s.clientSessNextUid.Add(1)
-	s.clientSessions = append(s.clientSessions, incomingSession)
 }

@@ -77,8 +77,6 @@ func (s *RaftServer) doCandidate(ctx context.Context) {
 				log.Printf("Received AppendEntries from a valid leader. Reverting to FOLLOWER...\n")
 				return
 			}
-		case sess := <-s.registerClientSession:
-			s.doRegisterClientSession(sess)
 		}
 	}
 }
