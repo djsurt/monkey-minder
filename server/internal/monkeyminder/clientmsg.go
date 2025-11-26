@@ -239,9 +239,40 @@ func (m *SetData) DoMessageWatch(currentState *tree.Tree) (
 	panic("SetData does not support watches")
 }
 
-// TODO: implement ClientMessage
 type GetChildren struct {
 	SimpleMessageCommon
 	WatchMessageCommon
 	path string
+}
+
+// GetChildren can be served locally.
+func (m *GetChildren) IsLeaderOnly() bool {
+	return false
+}
+
+// Get the absolute paths of all children of the given path.
+// Fails if the node does not exist.
+func (m *GetChildren) DoMessage(currentState *tree.Tree) (
+	response *clientapi.ServerResponse,
+	newEntries []*raftpb.LogEntry,
+) {
+	children, err := currentState.GetChildren(m.path)
+	if err != nil {
+		response.Succeeded = false
+		return
+	}
+
+	response.Succeeded = true
+	response.Children = children
+	return
+}
+
+func (m *GetChildren) WatchTest(entry *raftpb.LogEntry) bool {
+	return false
+}
+
+func (m *GetChildren) DoMessageWatch(currentState *tree.Tree) (
+	response *clientapi.ServerResponse,
+) {
+	panic("GetChildren does not support watches.")
 }
