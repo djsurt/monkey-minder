@@ -5,6 +5,7 @@ package raft
 import (
 	"context"
 	"log"
+	"sort"
 	"time"
 
 	raftlog "github.com/djsurt/monkey-minder/server/internal/log"
@@ -13,7 +14,6 @@ import (
 
 func (s *RaftServer) doLeader(ctx context.Context) {
 	// TODO: "If command received from client: append entry to local log, respond after entry applied to state machine (§5.3)"
-	// TODO: "If there exists an N such that N > commitIndex, a majority of matchIndex[i] ≥ N, and log[N].term == currentTerm: set commitIndex = N (§5.3, §5.4)."
 
 	// FIXME remove me
 	testingAppendsTimer := time.NewTicker(5 * time.Second)
@@ -185,6 +185,34 @@ func (s *RaftServer) doLeader(ctx context.Context) {
 				// "If successful: update nextIndex and matchIndex for follower (§5.3)"
 				lp.nextIndex = max(lp.nextIndex, resp.newNextIndex)
 				lp.matchIndex = max(lp.matchIndex, resp.newMatchIndex)
+
+				// "If there exists an N such that N > commitIndex, a majority
+				// of matchIndex[i] ≥ N, and log[N].term == currentTerm: set
+				// commitIndex = N (§5.3, §5.4)."
+				var matchIndices []int
+				for _, replica := range leaderPeers {
+					matchIndices = append(matchIndices, int(replica.matchIndex))
+				}
+				// Sort the match indices by value; assume leader's is at
+				// least as large as the largest matchIdx.
+				sort.Sort(sort.Reverse(sort.IntSlice(matchIndices)))
+				// Grab the smallest matchIdx agreed upon by a majority of the
+				// cluster.
+				quorumCount := (len(leaderPeers) + 1) / 2
+				smallestMajorityMatchIdx := raftlog.Index(matchIndices[quorumCount])
+				// Update commitIdx, update client requests & watches depnding
+				// on it.
+				currCommitIdx := s.log.GetCommitIndex()
+				if smallestMajorityMatchIdx > currCommitIdx {
+					s.log.Commit(smallestMajorityMatchIdx)
+					for i := currCommitIdx + 1; i <= s.log.GetCommitIndex(); i++ {
+						entry, err := s.log.GetEntryAt(i)
+						if err != nil {
+							log.Panicf("Could not retrieve log entry at index %d. This entry should already be there!\n", i)
+						}
+						s.watches.SubmitEntry(*entry)
+					}
+				}
 			} else {
 				// "If AppendEntries fails because of log inconsistency: decrement nextIndex and retry (§5.3)"
 				// FIXME this is not distinguishing causes of failure, see above vs. what we have here
