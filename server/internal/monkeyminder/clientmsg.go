@@ -44,25 +44,105 @@ type WatchMessageCommon struct {
 	watchId messageId
 }
 
-// TODO: implement ClientMessage
 type Create struct {
 	SimpleMessageCommon
 	path string
 	data string
 }
 
-// TODO: implement ClientMessage
+func (c *Create) IsLeaderOnly() bool {
+	return true
+}
+
+func (c *Create) DoMessage(currentState *tree.Tree) (*clientapi.ServerResponse, []*raftpb.LogEntry) {
+	entry := &raftpb.LogEntry{
+		Kind:       raftpb.LogEntryType_CREATE,
+		TargetPath: c.path,
+		Value:      c.data,
+	}
+
+	response := &clientapi.ServerResponse{
+		Success: true,
+		Data:    &c.data,
+	}
+
+	return response, []*raftpb.LogEntry{entry}
+}
+
+func (c *Create) WatchTest(entry *raftpb.LogEntry) bool {
+	return false
+}
+
+func (c *Create) DoMessageWatch(currentState *tree.Tree) *clientapi.ServerResponse {
+	panic("Create does not support watches")
+}
+
 type Delete struct {
 	SimpleMessageCommon
 	path    string
 	version Version
 }
 
-// TODO: implement ClientMessage
+func (d *Delete) IsLeaderOnly() bool {
+	return true
+}
+
+func (d *Delete) DoMessage(currentState *tree.Tree) (*clientapi.ServerResponse, []*raftpb.LogEntry) {
+	_, err := currentState.Get(d.path)
+	if err != nil {
+		return &clientapi.ServerResponse{Success: false}, nil
+	}
+
+	entry := &raftpb.LogEntry{
+		Kind:       raftpb.LogEntryType_DELETE,
+		TargetPath: d.path,
+	}
+
+	return &clientapi.ServerResponse{Success: true}, []*raftpb.LogEntry{entry}
+}
+
+func (d *Delete) WatchTest(entry *raftpb.LogEntry) bool {
+	return false
+}
+
+func (d *Delete) DoMessageWatch(currentState *tree.Tree) *clientapi.ServerResponse {
+	panic("Delete does not support watches")
+}
+
 type Exists struct {
 	SimpleMessageCommon
 	WatchMessageCommon
 	path string
+}
+
+func (e *Exists) IsLeaderOnly() bool {
+	return false
+}
+
+func (e *Exists) DoMessage(currentState *tree.Tree) (*clientapi.ServerResponse, []*raftpb.LogEntry) {
+	_, err := currentState.Get(e.path)
+	exists := err == nil
+
+	response := &clientapi.ServerResponse{
+		Exists: exists,
+	}
+
+	return response, nil
+}
+
+func (e *Exists) WatchTest(entry *raftpb.LogEntry) bool {
+	if entry.TargetPath != e.path {
+		return false
+	}
+	// This watch fires on CREATE and DELETE events
+	return entry.Kind == raftpb.LogEntryType_CREATE || entry.Kind == raftpb.LogEntryType_DELETE
+}
+
+func (e *Exists) DoMessageWatch(currentState *tree.Tree) *clientapi.ServerResponse {
+	_, err := currentState.Get(e.path)
+	return &clientapi.ServerResponse{
+		Exists: err == nil,
+	}
 }
 
 type GetData struct {
