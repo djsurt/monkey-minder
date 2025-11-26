@@ -65,11 +65,49 @@ type Exists struct {
 	path string
 }
 
-// TODO: implement ClientMessage
 type GetData struct {
 	SimpleMessageCommon
 	WatchMessageCommon
 	path string
+}
+
+func (m *GetData) IsLeaderOnly() bool {
+	return false
+}
+
+// Retrieve the requested value from the currentState. If any error occurs,
+// return a response w/ Success = false.
+func (m *GetData) DoMessage(currentState *tree.Tree) (
+	response *clientapi.ServerResponse,
+	newEntries []*raftpb.LogEntry,
+) {
+	// Never need to apply new entries for a read
+	newEntries = nil
+
+	data, err := currentState.Get(m.path)
+	if err != nil {
+		response.Succeeded = false
+		return
+	}
+	response.Succeeded = true
+	response.Data = &data
+	return
+}
+
+// If the entry modifies the value of m.path, returns true.
+func (m *GetData) WatchTest(entry *raftpb.LogEntry) bool {
+	isMyTarget := m.path == entry.TargetPath
+	isModification := (entry.Kind == raftpb.LogEntryType_CREATE ||
+		entry.Kind == raftpb.LogEntryType_UPDATE ||
+		entry.Kind == raftpb.LogEntryType_DELETE)
+
+	return isMyTarget && isModification
+}
+
+func (m *GetData) DoMessageWatch(currentState *tree.Tree) (
+	response *clientapi.ServerResponse,
+) {
+	panic("Not implemented!")
 }
 
 // TODO: implement ClientMessage
