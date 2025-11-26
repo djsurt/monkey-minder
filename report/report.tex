@@ -160,6 +160,19 @@ to the current leader, which serializes updates and replicates them to followers
 Because the replicated log is generic, different state machines can be plugged in to support different
 workloads without changing the consensus layer.
 
+\textbf{Transparency}:
+Clients interact with the system as if it were a single, reliable ZooKeeper-like service with a heirarchical
+namespace. They are unaware of which node is currently the leader, when failovers occur, or how many replicas
+exist in the cluster. Leader elecion, log replication, and commit-index management are all hidden behind the
+API, providing failure transparency and location transparency.
+
+\subsection{Key Components and Algorithms}
+\subsubsection{RaftServer and Node Roles}
+The \texttt{RaftServer} type represents a single Raft node. It maintains the node identity (\texttt{Id}), peer addresses,
+current role (\texttt{FOLLOWER}, \texttt{CANDIDATE}, \texttt{LEADER}), current term, the node it voted for,
+gRPC server state, a replicated log, and per-RPC channels for AppendEntries and RequestVote. 
+
+
 % \begin{figure}[h]
 %     \centering
 %     \includegraphics[width=2.5in]{test-uml.mmd.pdf}
