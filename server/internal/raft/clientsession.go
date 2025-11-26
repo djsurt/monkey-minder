@@ -72,7 +72,6 @@ sendLoop:
 }
 
 func (s *RaftServer) doRegisterClientSession(incomingSession *clientSession) {
-	incomingSession.uid = s.clientSessNextUid
-	s.clientSessNextUid++
+	incomingSession.uid = s.clientSessNextUid.Add(1)
 	s.clientSessions = append(s.clientSessions, incomingSession)
 }
