@@ -33,6 +33,8 @@ type ClientMessage interface {
 	// this is like DoMessage but for processing watches.
 	// for those message which do not support watches, a single line with a panic is sufficient.
 	DoMessageWatch(currentState *tree.Tree) (response *clientapi.ServerResponse)
+
+	GetId() MessageId
 }
 
 type MessageId uint64
@@ -44,6 +46,10 @@ type SimpleMessageCommon struct {
 
 type WatchMessageCommon struct {
 	WatchId MessageId
+}
+
+func (m *SimpleMessageCommon) GetId() MessageId {
+	return m.Id
 }
 
 type Create struct {
@@ -172,6 +178,7 @@ func (m *GetData) DoMessage(currentState *tree.Tree) (
 		response.Succeeded = false
 		return
 	}
+	// FIXME: need to include version too
 	response.Succeeded = true
 	response.Data = &data
 	return

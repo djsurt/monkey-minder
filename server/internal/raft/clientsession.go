@@ -100,6 +100,20 @@ clientLoop:
 }
 
 func (s *RaftServer) handleClientMessage(msg clientMsg) {
+	if msg.msg.IsLeaderOnly() {
+		panic("TODO")
+	} else {
+		currentState := *s.log.Latest()
+		response, newEntries := msg.msg.DoMessage(currentState)
+		response.Id = uint64(msg.msg.GetId())
+		if len(newEntries) > 0 {
+			panic("non-LeaderOnly messages must not attempt to append log entries")
+		}
+		session := s.clientSessions[msg.sessionId]
+		if session.isLive {
+			session.responseChan <- response
+		}
+	}
 }
 
 // TODO give this a better name
