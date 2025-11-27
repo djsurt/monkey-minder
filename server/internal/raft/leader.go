@@ -94,6 +94,13 @@ func (s *RaftServer) doLeader(ctx context.Context) {
 		lp.markShouldAE()
 	}
 
+	s.log.Append(&raftpb.LogEntry{
+		Kind:       raftpb.LogEntryType_CREATE,
+		Term:       uint64(s.term),
+		TargetPath: "/foo",
+		Value:      "<initial value>",
+	})
+
 	for {
 		select {
 		// TODO also need to handle incoming stuff from clients
@@ -222,7 +229,7 @@ func (s *RaftServer) doLeader(ctx context.Context) {
 			}
 		case <-testingAppendsTimer.C:
 			s.log.Append(&raftpb.LogEntry{
-				Kind:       raftpb.LogEntryType_CREATE,
+				Kind:       raftpb.LogEntryType_UPDATE,
 				Term:       uint64(s.term),
 				TargetPath: "/foo",
 				Value:      time.Now().Format(time.DateTime),
