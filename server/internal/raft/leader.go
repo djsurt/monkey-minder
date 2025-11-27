@@ -201,17 +201,27 @@ func (s *RaftServer) doLeader(ctx context.Context) {
 				for _, replica := range leaderPeers {
 					matchIndices = append(matchIndices, int(replica.matchIndex))
 				}
+
 				// Sort the match indices by value; assume leader's is at
 				// least as large as the largest matchIdx.
 				sort.Sort(sort.Reverse(sort.IntSlice(matchIndices)))
+
 				// Grab the smallest matchIdx agreed upon by a majority of the
 				// cluster.
-				quorumCount := (len(leaderPeers) + 1) / 2
+				quorumCount := len(leaderPeers) / 2
 				smallestMajorityMatchIdx := raftlog.Index(matchIndices[quorumCount])
-				// Update commitIdx, update client requests & watches depnding
+				majorityEntry, err := s.log.GetEntryAt(smallestMajorityMatchIdx)
+				if err != nil {
+					log.Panicf("Error retrieving most recent quorum log entry at idx %d: %v\n",
+						smallestMajorityMatchIdx,
+						err)
+				}
+				// Leader can ONLY ever commit entries from the CURRENT TERM
+				termMatches := Term((*majorityEntry).Term) == s.term
+				// Update commitIdx, update client requests & watches depending
 				// on it.
 				currCommitIdx := s.log.GetCommitIndex()
-				if smallestMajorityMatchIdx > currCommitIdx {
+				if smallestMajorityMatchIdx > currCommitIdx && termMatches {
 					err := s.log.Commit(smallestMajorityMatchIdx)
 					if err != nil {
 						log.Panicf("Error committing log entries: %v\n", err)
