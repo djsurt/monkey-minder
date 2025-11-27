@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	mmpb "github.com/djsurt/monkey-minder/common/proto"
+	mmpb "github.com/djsurt/monkey-minder/proto"
 	raftlog "github.com/djsurt/monkey-minder/server/internal/log"
 	tree "github.com/djsurt/monkey-minder/server/internal/tree"
 	raftpb "github.com/djsurt/monkey-minder/server/proto/raft"
