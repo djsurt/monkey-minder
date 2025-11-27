@@ -3,7 +3,7 @@ package client
 import (
 	"context"
 
-	clientapi "github.com/djsurt/monkey-minder/common/proto"
+	mmpb "github.com/djsurt/monkey-minder/common/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -15,10 +15,10 @@ type Client struct {
 	// TODO do we actually need to store this
 	grpcConn *grpc.ClientConn
 	// TODO do we actually need to store this
-	grpcClient *clientapi.ApiClient
-	session    grpc.BidiStreamingClient[clientapi.ClientRequest, clientapi.ServerResponse]
+	grpcClient *mmpb.MonkeyMinderServiceClient
+	session    grpc.BidiStreamingClient[mmpb.ClientRequest, mmpb.ServerResponse]
 	idCounter  uint64
-	chans      map[uint64]chan<- *clientapi.ServerResponse
+	chans      map[uint64]chan<- *mmpb.ServerResponse
 }
 
 // Create a new MonkeyMinder client that services all API calls to the
@@ -30,7 +30,7 @@ func NewClient(ctx context.Context, target string) (client *Client, err error) {
 		return
 	}
 
-	grpcClient := clientapi.NewApiClient(gprcConn)
+	grpcClient := mmpb.NewMonkeyMinderServiceClient(gprcConn)
 
 	session, err := grpcClient.Session(ctx)
 	if err != nil {
@@ -42,7 +42,7 @@ func NewClient(ctx context.Context, target string) (client *Client, err error) {
 		grpcConn:   gprcConn,
 		grpcClient: &grpcClient,
 		session:    session,
-		chans:      make(map[uint64]chan<- *clientapi.ServerResponse),
+		chans:      make(map[uint64]chan<- *mmpb.ServerResponse),
 	}
 
 	go client.handleResponses()
@@ -69,10 +69,10 @@ func (client *Client) nextIdIf(cond bool) uint64 {
 func setupCallbackChannel[T any](
 	client *Client,
 	id uint64,
-	convertResponse func(*clientapi.ServerResponse) T,
+	convertResponse func(*mmpb.ServerResponse) T,
 	outputChannel chan T,
 ) <-chan T {
-	ch := make(chan *clientapi.ServerResponse)
+	ch := make(chan *mmpb.ServerResponse)
 	client.chans[id] = ch
 	go func() { outputChannel <- convertResponse(<-ch) }()
 	return outputChannel
@@ -100,7 +100,7 @@ func (client *Client) handleResponses() {
 }
 
 // Sends a single MonkeyMinder request to the server.
-func (client *Client) doApi(request *clientapi.ClientRequest) {
+func (client *Client) doApi(request *mmpb.ClientRequest) {
 	err := client.session.Send(request)
 	if err != nil {
 		// TODO handle error properly
@@ -110,8 +110,8 @@ func (client *Client) doApi(request *clientapi.ClientRequest) {
 
 // Creates a node at the given path with the provided data.
 func (client *Client) Create(path string, data string) <-chan string {
-	request := &clientapi.ClientRequest{
-		Kind: clientapi.RequestType_CREATE,
+	request := &mmpb.ClientRequest{
+		Kind: mmpb.RequestType_CREATE,
 		Id:   client.nextId(),
 		Path: &path,
 		Data: &data,
@@ -119,7 +119,7 @@ func (client *Client) Create(path string, data string) <-chan string {
 	onComplete := setupCallbackChannel(
 		client,
 		request.Id,
-		func(resp *clientapi.ServerResponse) string { return *resp.Data },
+		func(resp *mmpb.ServerResponse) string { return *resp.Data },
 		make(chan string),
 	)
 	go client.doApi(request)
@@ -129,8 +129,8 @@ func (client *Client) Create(path string, data string) <-chan string {
 // Deletes the node at the given path if the node's version is equal to the
 // provided version, or -1 if no version checking is required.
 func (client *Client) Delete(path string, version Version) <-chan struct{} {
-	request := &clientapi.ClientRequest{
-		Kind:    clientapi.RequestType_DELETE,
+	request := &mmpb.ClientRequest{
+		Kind:    mmpb.RequestType_DELETE,
 		Id:      client.nextId(),
 		Path:    &path,
 		Version: int64(version),
@@ -138,7 +138,7 @@ func (client *Client) Delete(path string, version Version) <-chan struct{} {
 	onComplete := setupCallbackChannel(
 		client,
 		request.Id,
-		func(*clientapi.ServerResponse) struct{} { return struct{}{} },
+		func(*mmpb.ServerResponse) struct{} { return struct{}{} },
 		make(chan struct{}),
 	)
 	go client.doApi(request)
@@ -150,7 +150,7 @@ type NodeData struct {
 	Version Version
 }
 
-func getData_convertResponse(resp *clientapi.ServerResponse) NodeData {
+func getData_convertResponse(resp *mmpb.ServerResponse) NodeData {
 	if resp.Succeeded {
 		return NodeData{
 			Data:    *resp.Data,
@@ -165,8 +165,8 @@ func getData_convertResponse(resp *clientapi.ServerResponse) NodeData {
 // Get the value of the node at path. On an update, the server promises to
 // notify on the watchChan.
 func (client *Client) GetData(path string, watchChan chan NodeData) <-chan NodeData {
-	request := &clientapi.ClientRequest{
-		Kind:    clientapi.RequestType_GETDATA,
+	request := &mmpb.ClientRequest{
+		Kind:    mmpb.RequestType_GETDATA,
 		Id:      client.nextId(),
 		WatchId: client.nextIdIf(watchChan != nil),
 		Path:    &path,
@@ -182,8 +182,8 @@ func (client *Client) GetData(path string, watchChan chan NodeData) <-chan NodeD
 // Sets the node at the given path to data if the node's version is equal to
 // the provided version, or -1 if no version checking is required.
 func (client *Client) SetData(path string, data string, version Version) <-chan bool {
-	request := &clientapi.ClientRequest{
-		Kind:    clientapi.RequestType_GETDATA,
+	request := &mmpb.ClientRequest{
+		Kind:    mmpb.RequestType_GETDATA,
 		Id:      client.nextId(),
 		Path:    &path,
 		Data:    &data,
@@ -192,7 +192,7 @@ func (client *Client) SetData(path string, data string, version Version) <-chan 
 	onComplete := setupCallbackChannel(
 		client,
 		request.Id,
-		func(sr *clientapi.ServerResponse) bool { panic("TODO") },
+		func(sr *mmpb.ServerResponse) bool { panic("TODO") },
 		make(chan bool),
 	)
 	go client.doApi(request)
@@ -202,15 +202,15 @@ func (client *Client) SetData(path string, data string, version Version) <-chan 
 // Get the values of all children of the node at path. On an update, the
 // server promises to notify on the watchChan.
 func (client *Client) GetChildren(path string, watchChan <-chan []string) <-chan []string {
-	request := &clientapi.ClientRequest{
-		Kind: clientapi.RequestType_GETCHILDREN,
+	request := &mmpb.ClientRequest{
+		Kind: mmpb.RequestType_GETCHILDREN,
 		Id:   client.nextId(),
 		Path: &path,
 	}
 	onComplete := setupCallbackChannel(
 		client,
 		request.Id,
-		func(sr *clientapi.ServerResponse) []string { return sr.Children },
+		func(sr *mmpb.ServerResponse) []string { return sr.Children },
 		make(chan []string),
 	)
 	go client.doApi(request)

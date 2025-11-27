@@ -6,7 +6,7 @@ import (
 	"io"
 	"log"
 
-	clientapi "github.com/djsurt/monkey-minder/common/proto"
+	mmpb "github.com/djsurt/monkey-minder/common/proto"
 	"github.com/djsurt/monkey-minder/server/internal/monkeyminder"
 	"google.golang.org/grpc"
 )
@@ -16,7 +16,7 @@ type sessionId uint64
 type clientSession struct {
 	uid          sessionId
 	isLive       bool
-	responseChan chan<- *clientapi.ServerResponse
+	responseChan chan<- *mmpb.ServerResponse
 }
 
 type clientMsg struct {
@@ -24,7 +24,7 @@ type clientMsg struct {
 	msg       monkeyminder.ClientMessage
 }
 
-func (s *RaftServer) Session(server grpc.BidiStreamingServer[clientapi.ClientRequest, clientapi.ServerResponse]) (err error) {
+func (s *RaftServer) Session(server grpc.BidiStreamingServer[mmpb.ClientRequest, mmpb.ServerResponse]) (err error) {
 	log.Printf("got new incoming client session")
 
 	ctx := server.Context()
@@ -32,8 +32,8 @@ func (s *RaftServer) Session(server grpc.BidiStreamingServer[clientapi.ClientReq
 
 	defer cancel()
 
-	responseChan := make(chan *clientapi.ServerResponse)
-	requestChan := make(chan *clientapi.ClientRequest)
+	responseChan := make(chan *mmpb.ServerResponse)
+	requestChan := make(chan *mmpb.ClientRequest)
 
 	// FIXME probably a better way to solve it than this
 	recvError := make(chan error)
@@ -133,7 +133,7 @@ func (s *RaftServer) clientMessageScheduler(ctx context.Context) {
 }
 
 // Convert the incoming ClientRequest to the appropriate application message type
-func brokerMessage(req *clientapi.ClientRequest) monkeyminder.ClientMessage {
+func brokerMessage(req *mmpb.ClientRequest) monkeyminder.ClientMessage {
 	id := monkeyminder.SimpleMessageCommon{
 		Id: monkeyminder.MessageId(req.Id),
 	}
@@ -144,44 +144,44 @@ func brokerMessage(req *clientapi.ClientRequest) monkeyminder.ClientMessage {
 	var result monkeyminder.ClientMessage
 
 	switch req.Kind {
-	case clientapi.RequestType_CREATE:
+	case mmpb.RequestType_CREATE:
 		result = &monkeyminder.Create{
 			SimpleMessageCommon: id,
 			Path:                *req.Path,
 			Data:                *req.Data,
 		}
-	case clientapi.RequestType_DELETE:
+	case mmpb.RequestType_DELETE:
 		result = &monkeyminder.Delete{
 			SimpleMessageCommon: id,
 			Path:                *req.Path,
 			Version:             monkeyminder.Version(req.Version),
 		}
-	case clientapi.RequestType_EXISTS:
+	case mmpb.RequestType_EXISTS:
 		result = &monkeyminder.Exists{
 			SimpleMessageCommon: id,
 			WatchMessageCommon:  watchId,
 			Path:                *req.Path,
 		}
-	case clientapi.RequestType_GETDATA:
+	case mmpb.RequestType_GETDATA:
 		result = &monkeyminder.GetData{
 			SimpleMessageCommon: id,
 			WatchMessageCommon:  watchId,
 			Path:                *req.Path,
 		}
-	case clientapi.RequestType_SETDATA:
+	case mmpb.RequestType_SETDATA:
 		result = &monkeyminder.SetData{
 			SimpleMessageCommon: id,
 			Path:                *req.Path,
 			Data:                *req.Data,
 			Version:             monkeyminder.Version(req.Version),
 		}
-	case clientapi.RequestType_GETCHILDREN:
+	case mmpb.RequestType_GETCHILDREN:
 		result = &monkeyminder.GetChildren{
 			SimpleMessageCommon: id,
 			WatchMessageCommon:  watchId,
 			Path:                *req.Path,
 		}
-	case clientapi.RequestType_UNSPECIFIED:
+	case mmpb.RequestType_UNSPECIFIED:
 		panic("Unspecified")
 	}
 	return result

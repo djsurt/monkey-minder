@@ -1,7 +1,7 @@
 syntax = "proto3";
-package clientapi;
+package monkeyminder;
 
-option go_package = "github.com/djsurt/monkey-minder/common/proto/clientapi";
+option go_package = "github.com/djsurt/monkey-minder/common/proto/mmpb";
 
 
 enum RequestType {
@@ -39,7 +39,6 @@ message ServerResponse {
 }
 
 
-// TODO give this a better name
-service Api {
+service MonkeyMinderService {
   rpc Session(stream ClientRequest) returns (stream ServerResponse);
 }

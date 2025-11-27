@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	clientapi "github.com/djsurt/monkey-minder/common/proto"
+	mmpb "github.com/djsurt/monkey-minder/common/proto"
 	raftlog "github.com/djsurt/monkey-minder/server/internal/log"
 	tree "github.com/djsurt/monkey-minder/server/internal/tree"
 	raftpb "github.com/djsurt/monkey-minder/server/proto/raft"
@@ -34,7 +34,7 @@ const (
 
 type RaftServer struct {
 	raftpb.UnimplementedRaftServer
-	clientapi.UnimplementedApiServer
+	mmpb.UnimplementedMonkeyMinderServiceServer
 	Port              int
 	Id                NodeId
 	peers             map[NodeId]string
@@ -138,7 +138,7 @@ func (s *RaftServer) Serve() error {
 	// Create & register gRPC server
 	s.grpcServer = grpc.NewServer()
 	raftpb.RegisterRaftServer(s.grpcServer, s)
-	clientapi.RegisterApiServer(s.grpcServer, s)
+	mmpb.RegisterMonkeyMinderServiceServer(s.grpcServer, s)
 
 	// Create peer connections
 	err = s.connectToPeers()
