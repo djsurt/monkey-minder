@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"log"
+	"time"
 
 	client "github.com/djsurt/monkey-minder/client/lib"
 )
@@ -11,5 +13,11 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	<-client.Create("foo", "bar")
+
+	for {
+		currentFoo := <-client.GetData("/foo", nil)
+		log.Printf("got value: %v", currentFoo)
+
+		<- time.Tick(time.Second * 1)
+	}
 }
