@@ -44,7 +44,7 @@ type RaftServer struct {
 	peerConns         map[NodeId]raftpb.RaftClient
 	term              Term
 	votedFor          NodeId
-	log               Log
+	log               *Log
 	commitPoint       *LogCheckpoint
 	leader            NodeId
 	aeRequestChan     chan *raftpb.AppendEntriesRequest
