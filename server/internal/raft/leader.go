@@ -172,7 +172,7 @@ func (s *RaftServer) doLeader(ctx context.Context) {
 				PrevLogIndex: uint64(prevLogIndex),
 				PrevLogTerm:  uint64(prevLogTerm),
 				Entries:      entriesToSend,
-				LeaderCommit: uint64(s.log.GetCommitIndex()),
+				LeaderCommit: uint64(s.commitPoint.Index()),
 			}
 
 			go func(peerConn raftpb.RaftClient, responses chan<- incomingAEResponse) {
@@ -194,11 +194,13 @@ func (s *RaftServer) doLeader(ctx context.Context) {
 				lp.nextIndex = max(lp.nextIndex, resp.newNextIndex)
 				lp.matchIndex = max(lp.matchIndex, resp.newMatchIndex)
 
+				log.Printf("Log length: %d\n", s.log.LenLogical())
 				// "If there exists an N such that N > commitIndex, a majority
 				// of matchIndex[i] ≥ N, and log[N].term == currentTerm: set
 				// commitIndex = N (§5.3, §5.4)."
 				var matchIndices []int
-				for _, replica := range leaderPeers {
+				for id, replica := range leaderPeers {
+					log.Printf("Node %d (matchIdx, nextIdx): (%d, %d)\n", id, replica.matchIndex, replica.nextIndex)
 					matchIndices = append(matchIndices, int(replica.matchIndex))
 				}
 
@@ -210,28 +212,32 @@ func (s *RaftServer) doLeader(ctx context.Context) {
 				// cluster.
 				quorumCount := len(leaderPeers) / 2
 				smallestMajorityMatchIdx := raftlog.Index(matchIndices[quorumCount])
-				majorityEntry, err := s.log.GetEntryAt(smallestMajorityMatchIdx)
-				if err != nil {
-					log.Panicf("Error retrieving most recent quorum log entry at idx %d: %v\n",
-						smallestMajorityMatchIdx,
-						err)
-				}
-				// Leader can ONLY ever commit entries from the CURRENT TERM
-				termMatches := Term((*majorityEntry).Term) == s.term
-				// Update commitIdx, update client requests & watches depending
-				// on it.
-				currCommitIdx := s.log.GetCommitIndex()
-				if smallestMajorityMatchIdx > currCommitIdx && termMatches {
-					err := s.log.Commit(smallestMajorityMatchIdx)
+
+				if s.log.HasEntryAt(smallestMajorityMatchIdx) {
+					majorityEntry, err := s.log.GetEntryAt(smallestMajorityMatchIdx)
 					if err != nil {
-						log.Panicf("Error committing log entries: %v\n", err)
+						log.Panicf("Error retrieving most recent quorum log entry at idx %d: %v\n",
+							smallestMajorityMatchIdx,
+							err)
 					}
-					for i := currCommitIdx + 1; i <= s.log.GetCommitIndex(); i++ {
-						entry, err := s.log.GetEntryAt(i)
+					// Leader can ONLY ever commit entries from the CURRENT TERM
+					termMatches := Term((*majorityEntry).Term) == s.term
+					// Update commitIdx, update client requests & watches depending
+					// on it.
+					currCommitIdx := s.commitPoint.Index()
+					if smallestMajorityMatchIdx > currCommitIdx && termMatches {
+						log.Printf("Advancing from %d to index %d\n", currCommitIdx, smallestMajorityMatchIdx)
+						err := s.commitPoint.AdvanceTo(smallestMajorityMatchIdx)
 						if err != nil {
-							log.Panicf("Could not retrieve log entry at index %d. This entry should already be there!\n", i)
+							log.Panicf("Error committing log entries: %v\n", err)
 						}
-						s.watches.SubmitEntry(*entry)
+						for i := currCommitIdx + 1; i <= s.commitPoint.Index(); i++ {
+							entry, err := s.log.GetEntryAt(i)
+							if err != nil {
+								log.Panicf("Could not retrieve log entry at index %d. This entry should already be there!\n", i)
+							}
+							s.watches.SubmitEntry(*entry)
+						}
 					}
 				}
 			} else {
@@ -248,7 +254,7 @@ func (s *RaftServer) doLeader(ctx context.Context) {
 				Value:      time.Now().Format(time.DateTime),
 			})
 		case msg := <-s.clientMessages:
-			log.Printf("going into msg handle. commit index = %v", s.log.GetCommitIndex())
+			log.Printf("going into msg handle. commit index = %v", s.commitPoint.Index())
 			s.handleClientMessage(msg)
 		}
 	}
