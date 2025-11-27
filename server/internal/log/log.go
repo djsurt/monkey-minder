@@ -37,8 +37,8 @@ type Log[E any, S Snapshot[E, S]] struct {
 func NewLog[E any, S Snapshot[E, S]](
 	initialSnapshot S,
 	indexOffset uint64,
-) Log[E, S] {
-	return Log[E, S]{
+) *Log[E, S] {
+	return &Log[E, S]{
 		headSnapshot:   initialSnapshot.Clone(),
 		tailSnapshot:   initialSnapshot,
 		realFirstIndex: Index(1).promiseNonzero().offsetBy(indexOffset),
