@@ -87,7 +87,8 @@ func (c *Create) DoMessage(currentState *tree.Tree) (*mmpb.ServerResponse, []*ra
 }
 
 func (c *Create) WatchTest(entry *raftpb.LogEntry) bool {
-	return false
+	// TODO: implement checking logic properly
+	return true
 }
 
 func (c *Create) DoMessageWatch(currentState *tree.Tree) *mmpb.ServerResponse {
@@ -119,7 +120,8 @@ func (d *Delete) DoMessage(currentState *tree.Tree) (*mmpb.ServerResponse, []*ra
 }
 
 func (d *Delete) WatchTest(entry *raftpb.LogEntry) bool {
-	return false
+	// TODO: implement checking logic properly
+	return true
 }
 
 func (d *Delete) DoMessageWatch(currentState *tree.Tree) *mmpb.ServerResponse {
@@ -250,7 +252,8 @@ func (m *SetData) DoMessage(currentState *tree.Tree) (
 }
 
 func (m *SetData) WatchTest(entry *raftpb.LogEntry) bool {
-	return false
+	// TODO: implement checking logic properly
+	return true
 }
 
 func (m *SetData) DoMessageWatch(currentState *tree.Tree) (
