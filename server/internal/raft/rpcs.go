@@ -148,7 +148,10 @@ func (s *RaftServer) reconcileLogs(
 	// If all new entries are beyond our current log, just append them all
 	if startIdx > myLogLastIdx {
 		for _, entry := range newEntries {
-			s.log.Append(entry)
+			err := s.log.Append(entry)
+			if err != nil {
+				log.Panicf("error applying entries while reconciling logs: %v", err)
+			}
 		}
 		return len(newEntries), nil
 	}
@@ -181,7 +184,10 @@ func (s *RaftServer) reconcileLogs(
 		appendStart := int(myLogLastIdx - startIdx + 1)
 		if appendStart < len(newEntries) {
 			for i := appendStart; i < len(newEntries); i++ {
-				s.log.Append(newEntries[i])
+				err := s.log.Append(newEntries[i])
+				if err != nil {
+					log.Panicf("error applying entries while reconciling logs: %v", err)
+				}
 			}
 			return len(newEntries) - appendStart, nil
 		}
@@ -198,7 +204,10 @@ func (s *RaftServer) reconcileLogs(
 
 	entriesAdded := 0
 	for i := divergenceIdx; i < len(newEntries); i++ {
-		s.log.Append(newEntries[i])
+		err := s.log.Append(newEntries[i])
+		if err != nil {
+			log.Panicf("error applying entries while reconciling logs: %v", err)
+		}
 		entriesAdded++
 	}
 

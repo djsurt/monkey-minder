@@ -175,7 +175,9 @@ func (ckpt *checkpointData[E, S]) updateSnapshot(log *Log[E, S]) error {
 func (log *Log[E, S]) updateCheckpoints() error {
 	for id, ckpt := range log.checkpoints {
 		err := ckpt.updateSnapshot(log)
-		return fmt.Errorf("error while updating checkpoint #%v: %w", id, err)
+		if err != nil {
+			return fmt.Errorf("error while updating checkpoint #%v: %w", id, err)
+		}
 	}
 	return nil
 }
