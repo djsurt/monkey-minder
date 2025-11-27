@@ -469,29 +469,40 @@ $F_2$ never return ``x''. Followers must not serve ilder states than those alrea
 
 \subsection{Cross-Node Consistency}
 \subsubsection{Test 5: Writes on Leader, Reads on All Nodes}
+
 \textbf{Setup:} Five-node cluster. Clients $C_1\dots C5$ connected to different nodes.
+
 \textbf{Actions:} Leader performs:
 \begin{enumerate}
     \item \texttt{Create("/k"),"alpha"}.
     \item \texttt{SetData("/k", "beta")}
 \end{enumerate}
+
 \textbf{Observation:} All clients repeatedly read \texttt{GetData("/k")} for 5 seconds.
+
 \textbf{Expected Result:} All nodes converge to ``beta''. No node returns a value outside the committed sequence.
 Temporary follower lag is acceptable.
 
 \subsubsection{Failure Recovery}
 \subsubsection{Test 6: Leader Crash After Append, Before Commit}
+
 \textbf{Setup:} Three-node cluster. Followers $F_1$, $F_2$.
+
 \textbf{Actions:}
 Leader $L$ appends \texttt{SetData("/r", "new")} then crashes \emph{before} receiving a quorum ACK.
+
 \textbf{Observation:} Reads on $F_1$ and $F_2$ via \texttt{GetData("/r)}.
+
 \textbf{Expected Result:} Value remains the old value. The uncommitted write is discarded after new leader election. No 
 partial visibility.
 
 \subsection{Quorum and Availability}
 \subsubsection{Test 7: Minority Partition Unavailable for Writes}
+
 \textbf{Setup:} Five-node cluster partitioned into 3-node majority and 2-node minority.  
+
 \textbf{Actions:} Clients attempt writes in both partitions.  
+
 \textbf{Expected Result:}  
 \begin{itemize}
   \item Majority partition continues serving writes normally.
@@ -499,6 +510,38 @@ partial visibility.
   \item Minority reads may lag or fail.
   \item After healing, minority catches up from leader log.
 \end{itemize}
+
+\subsubsection{Test 8: Node Join and Catch-Up}
+
+\textbf{Setup:} Three nodes perform 100 sequential updates on \texttt{/z}.
+
+\textbf{Actions:} Add new node $N_4$, allow it to synchronize.
+
+\textbf{Expected Result:} After catch-up, $N_4$ returns the latest committed value.
+Log backfull converges without divergence.
+
+\subsection{Watches and Notifications}
+\subsubsection{Test 9: Watch Triggers on Immediate Children}
+
+\textbf{Setup:} Client registers a watch via \texttt{GetChildren("/p", watchChan)}.
+
+\textbf{Actions:}
+Leader creates \texttt{/p/a}, then \texttt{/p/a/b}, then deletes \texttt{/p}.
+
+\textbf{Expected Result:}
+Notifications fire for \texttt{/p/a} (child created) and \texttt{/p} (deleted).
+No notification for grandchild \texttt{/p/a/b}, consistent with Zookeeper semantics.
+
+\subsection{Operational Parameters}
+\begin{itemize}
+    \item Cluster sizes tested: 3-node and 5-node.
+    \item Timing: heartbeat interval and election timeout ranges.
+    \item Failure modes: crash-stop, network partitions.
+    \item Client placement: leader-connected vs. \ follower-connected vs. \ migrating.
+    \item Metrics recorded: commit index progression, read sequences, convergence time, 
+    leadership transitions.
+\end{itemize}
+
 
 \section{Conclusions}
 \lipsum[1]
