@@ -38,6 +38,7 @@ func NewClient(ctx context.Context, target string) (client *Client, err error) {
 	}
 
 	client = &Client{
+		ctx:        ctx,
 		grpcConn:   gprcConn,
 		grpcClient: &grpcClient,
 		session:    session,
@@ -150,9 +151,14 @@ type NodeData struct {
 }
 
 func getData_convertResponse(resp *clientapi.ServerResponse) NodeData {
-	return NodeData{
-		Data:    *resp.Data,
-		Version: Version(resp.Version),
+	if resp.Succeeded {
+		return NodeData{
+			Data:    *resp.Data,
+			Version: Version(resp.Version),
+		}
+	} else {
+		// FIXME propagate this out as an err instead
+		panic("FAILED!")
 	}
 }
 
