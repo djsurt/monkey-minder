@@ -2,14 +2,42 @@ package main
 
 import (
 	"context"
+	"flag"
+	"fmt"
 	"log"
+	"os"
+	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
 	client "github.com/djsurt/monkey-minder/client/lib"
 )
 
 func main() {
-	client, err := client.NewClient(context.Background(), "localhost:9001")
+	id := flag.Int("id", 0, "The node id to use. This should match a name in the cluster config")
+	flag.Parse()
+
+	clusterMembers, err := parseClusterConfig("cluster.conf")
+	if err != nil {
+		fmt.Printf("Error reading cluster config: %v\n", err)
+		os.Exit(1)
+	}
+
+	if _, ok := clusterMembers[*id]; !ok {
+		fmt.Printf("Please provide a node id that is in the cluster config.\n")
+		os.Exit(1)
+	}
+
+	myAddr := clusterMembers[*id]
+	// Split host:port to get the port number
+	parts := strings.Split(myAddr, ":")
+	if len(parts) != 2 {
+		fmt.Printf("Invalid address format: %s\n", myAddr)
+		os.Exit(1)
+	}
+
+	client, err := client.NewClient(context.Background(), myAddr)
 	if err != nil {
 		panic(err)
 	}
@@ -18,6 +46,33 @@ func main() {
 		currentFoo := <-client.GetData("/foo", nil)
 		log.Printf("got value: %v", currentFoo)
 
-		<- time.Tick(time.Second * 1)
+		<-time.Tick(time.Second * 1)
 	}
+}
+
+func parseClusterConfig(configPath string) (peers map[int]string, err error) {
+	peers = make(map[int]string)
+
+	// Read from cluster config file
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse for valid peer entries
+	configRegexp := regexp.MustCompile(`(\d+)\s+(.*)\n`)
+	matches := configRegexp.FindAllStringSubmatch(string(data), -1)
+
+	// Loop over match, adding to peers map
+	for _, match := range matches {
+		id_token, addr_token := match[1], match[2]
+		// Convert id token to int
+		id, err := strconv.Atoi(id_token)
+		if err != nil {
+			return nil, err
+		}
+		// Store the address string directly
+		peers[id] = addr_token
+	}
+	return peers, nil
 }
