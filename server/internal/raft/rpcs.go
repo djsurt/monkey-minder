@@ -117,6 +117,7 @@ func (s *RaftServer) doCommonAE(request *raftpb.AppendEntriesRequest) (
 
 	// §5.3: If an existing entry conflicts with a new one (same index but
 	// different terms), delete the existing entry and all that follow it
+	// FIXME handle returned error
 	s.reconcileLogs(prevLogIdx, request.Entries)
 
 	// If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index
