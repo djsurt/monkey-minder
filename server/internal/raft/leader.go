@@ -212,7 +212,10 @@ func (s *RaftServer) doLeader(ctx context.Context) {
 				// on it.
 				currCommitIdx := s.log.GetCommitIndex()
 				if smallestMajorityMatchIdx > currCommitIdx {
-					s.log.Commit(smallestMajorityMatchIdx)
+					err := s.log.Commit(smallestMajorityMatchIdx)
+					if err != nil {
+						log.Panicf("Error committing log entries: %v\n", err)
+					}
 					for i := currCommitIdx + 1; i <= s.log.GetCommitIndex(); i++ {
 						entry, err := s.log.GetEntryAt(i)
 						if err != nil {
