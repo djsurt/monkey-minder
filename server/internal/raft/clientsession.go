@@ -74,8 +74,10 @@ func (s *RaftServer) Session(server grpc.BidiStreamingServer[mmpb.ClientRequest,
 			case <-subCtx.Done():
 				return
 			case resp := <-responseChan:
-				// FIXME handle any errs from this
-				server.Send(resp)
+				err := server.Send(resp)
+				if err != nil {
+					log.Printf("Error sending response to client: %v\n", err)
+				}
 			}
 		}
 	}()
