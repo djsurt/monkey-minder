@@ -3,7 +3,7 @@ package monkeyminder
 import (
 	"strings"
 
-	clientapi "github.com/djsurt/monkey-minder/common/proto"
+	mmpb "github.com/djsurt/monkey-minder/proto"
 	"github.com/djsurt/monkey-minder/server/internal/tree"
 	raftpb "github.com/djsurt/monkey-minder/server/proto/raft"
 )
@@ -24,7 +24,7 @@ type ClientMessage interface {
 	//   (for reference, see the zookeeper paper, or look at which fields the corresponding client method accesses on the server response.)
 	// newEntries is a list of new log entries to be appended to the log in order to do any tree modifications necessary.
 	//  those who are making no changes should set it to nil.
-	DoMessage(currentState *tree.Tree) (response *clientapi.ServerResponse, newEntries []*raftpb.LogEntry)
+	DoMessage(currentState *tree.Tree) (response *mmpb.ServerResponse, newEntries []*raftpb.LogEntry)
 
 	// returns true if, based on the contents of entry, our watch should fire.
 	// for those messages which do not support watches, returning false is sufficient.
@@ -32,7 +32,7 @@ type ClientMessage interface {
 
 	// this is like DoMessage but for processing watches.
 	// for those message which do not support watches, a single line with a panic is sufficient.
-	DoMessageWatch(currentState *tree.Tree) (response *clientapi.ServerResponse)
+	DoMessageWatch(currentState *tree.Tree) (response *mmpb.ServerResponse)
 
 	GetId() MessageId
 }
@@ -62,14 +62,14 @@ func (c *Create) IsLeaderOnly() bool {
 	return true
 }
 
-func (c *Create) DoMessage(currentState *tree.Tree) (*clientapi.ServerResponse, []*raftpb.LogEntry) {
+func (c *Create) DoMessage(currentState *tree.Tree) (*mmpb.ServerResponse, []*raftpb.LogEntry) {
 	entry := &raftpb.LogEntry{
 		Kind:       raftpb.LogEntryType_CREATE,
 		TargetPath: c.Path,
 		Value:      c.Data,
 	}
 
-	response := &clientapi.ServerResponse{
+	response := &mmpb.ServerResponse{
 		Succeeded: true,
 		Data:      &c.Data,
 	}
@@ -81,7 +81,7 @@ func (c *Create) WatchTest(entry *raftpb.LogEntry) bool {
 	return false
 }
 
-func (c *Create) DoMessageWatch(currentState *tree.Tree) *clientapi.ServerResponse {
+func (c *Create) DoMessageWatch(currentState *tree.Tree) *mmpb.ServerResponse {
 	panic("Create does not support watches")
 }
 
@@ -95,10 +95,10 @@ func (d *Delete) IsLeaderOnly() bool {
 	return true
 }
 
-func (d *Delete) DoMessage(currentState *tree.Tree) (*clientapi.ServerResponse, []*raftpb.LogEntry) {
+func (d *Delete) DoMessage(currentState *tree.Tree) (*mmpb.ServerResponse, []*raftpb.LogEntry) {
 	_, err := currentState.Get(d.Path)
 	if err != nil {
-		return &clientapi.ServerResponse{Succeeded: false}, nil
+		return &mmpb.ServerResponse{Succeeded: false}, nil
 	}
 
 	entry := &raftpb.LogEntry{
@@ -106,14 +106,14 @@ func (d *Delete) DoMessage(currentState *tree.Tree) (*clientapi.ServerResponse, 
 		TargetPath: d.Path,
 	}
 
-	return &clientapi.ServerResponse{Succeeded: true}, []*raftpb.LogEntry{entry}
+	return &mmpb.ServerResponse{Succeeded: true}, []*raftpb.LogEntry{entry}
 }
 
 func (d *Delete) WatchTest(entry *raftpb.LogEntry) bool {
 	return false
 }
 
-func (d *Delete) DoMessageWatch(currentState *tree.Tree) *clientapi.ServerResponse {
+func (d *Delete) DoMessageWatch(currentState *tree.Tree) *mmpb.ServerResponse {
 	panic("Delete does not support watches")
 }
 
@@ -127,11 +127,11 @@ func (e *Exists) IsLeaderOnly() bool {
 	return false
 }
 
-func (e *Exists) DoMessage(currentState *tree.Tree) (*clientapi.ServerResponse, []*raftpb.LogEntry) {
+func (e *Exists) DoMessage(currentState *tree.Tree) (*mmpb.ServerResponse, []*raftpb.LogEntry) {
 	_, err := currentState.Get(e.Path)
 	exists := err == nil
 
-	response := &clientapi.ServerResponse{
+	response := &mmpb.ServerResponse{
 		Succeeded: exists,
 	}
 
@@ -146,9 +146,9 @@ func (e *Exists) WatchTest(entry *raftpb.LogEntry) bool {
 	return entry.Kind == raftpb.LogEntryType_CREATE || entry.Kind == raftpb.LogEntryType_DELETE
 }
 
-func (e *Exists) DoMessageWatch(currentState *tree.Tree) *clientapi.ServerResponse {
+func (e *Exists) DoMessageWatch(currentState *tree.Tree) *mmpb.ServerResponse {
 	_, err := currentState.Get(e.Path)
-	return &clientapi.ServerResponse{
+	return &mmpb.ServerResponse{
 		Succeeded: err == nil,
 	}
 }
@@ -166,12 +166,12 @@ func (m *GetData) IsLeaderOnly() bool {
 // Retrieve the requested value from the currentState. If any error occurs,
 // return a response w/ Success = false.
 func (m *GetData) DoMessage(currentState *tree.Tree) (
-	response *clientapi.ServerResponse,
+	response *mmpb.ServerResponse,
 	newEntries []*raftpb.LogEntry,
 ) {
 	// Never need to apply new entries for a read
 	newEntries = nil
-	response = &clientapi.ServerResponse{}
+	response = &mmpb.ServerResponse{}
 
 	data, err := currentState.Get(m.Path)
 	if err != nil {
@@ -194,7 +194,7 @@ func (m *GetData) WatchTest(entry *raftpb.LogEntry) bool {
 }
 
 func (m *GetData) DoMessageWatch(currentState *tree.Tree) (
-	response *clientapi.ServerResponse,
+	response *mmpb.ServerResponse,
 ) {
 	panic("Not implemented!")
 }
@@ -214,10 +214,10 @@ func (m *SetData) IsLeaderOnly() bool {
 // Fails if the version number doesn't match or if the path doesn't
 // exist.
 func (m *SetData) DoMessage(currentState *tree.Tree) (
-	response *clientapi.ServerResponse,
+	response *mmpb.ServerResponse,
 	newEntries []*raftpb.LogEntry,
 ) {
-	response = &clientapi.ServerResponse{}
+	response = &mmpb.ServerResponse{}
 	// First check if the node exists
 	version, err := currentState.GetVersion(m.Path)
 	if err != nil {
@@ -245,7 +245,7 @@ func (m *SetData) WatchTest(entry *raftpb.LogEntry) bool {
 }
 
 func (m *SetData) DoMessageWatch(currentState *tree.Tree) (
-	response *clientapi.ServerResponse,
+	response *mmpb.ServerResponse,
 ) {
 	panic("SetData does not support watches")
 }
@@ -264,10 +264,10 @@ func (m *GetChildren) IsLeaderOnly() bool {
 // Get the absolute paths of all children of the given path.
 // Fails if the node does not exist.
 func (m *GetChildren) DoMessage(currentState *tree.Tree) (
-	response *clientapi.ServerResponse,
+	response *mmpb.ServerResponse,
 	newEntries []*raftpb.LogEntry,
 ) {
-	response = &clientapi.ServerResponse{}
+	response = &mmpb.ServerResponse{}
 	children, err := currentState.GetChildren(m.Path)
 	if err != nil {
 		response.Succeeded = false
@@ -305,7 +305,7 @@ func (m *GetChildren) WatchTest(entry *raftpb.LogEntry) bool {
 }
 
 func (m *GetChildren) DoMessageWatch(currentState *tree.Tree) (
-	response *clientapi.ServerResponse,
+	response *mmpb.ServerResponse,
 ) {
 	panic("not implemented")
 }

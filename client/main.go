@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	client "github.com/djsurt/monkey-minder/client/lib"
+	monkeyminder "github.com/djsurt/monkey-minder"
 )
 
 func main() {
@@ -37,7 +37,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	client, err := client.NewClient(context.Background(), myAddr)
+	client, err := monkeyminder.NewClient(context.Background(), myAddr)
 	if err != nil {
 		panic(err)
 	}

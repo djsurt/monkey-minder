@@ -1,9 +1,9 @@
-package client
+package monkeyminder
 
 import (
 	"context"
 
-	mmpb "github.com/djsurt/monkey-minder/common/proto"
+	mmpb "github.com/djsurt/monkey-minder/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )

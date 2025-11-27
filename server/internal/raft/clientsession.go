@@ -6,7 +6,7 @@ import (
 	"io"
 	"log"
 
-	mmpb "github.com/djsurt/monkey-minder/common/proto"
+	mmpb "github.com/djsurt/monkey-minder/proto"
 	"github.com/djsurt/monkey-minder/server/internal/monkeyminder"
 	"google.golang.org/grpc"
 )
