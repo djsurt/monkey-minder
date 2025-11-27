@@ -450,7 +450,56 @@ serialization order (either $A \rightarrow B$ or $B \rightarrow A$).
 No interleaving or non-linearizable outcomes.
 
 \subsection{Monotonic Reads}
+
 \subsubsection{Test 3: Read-Only Client Monotonicity}
+\textbf{Setup:} Client $C_3$ reads from $F$. Leader $L$ performs updates.
+\textbf{Actions:}
+$L$: \texttt{SetData("/m", "1")} then \texttt{SetData("/m", "2")}.
+$C_3$ polls \texttt{GetData("/m)} every 100ms.
+\textbf{Expected Result:} Observed values are monotonic: once $C_3$ sees ``2'', it never
+returns ``1'' again. Temporary lag is allowed but regressions are not.
+
+\subsubsection{Test 4: Monotonic Reads Across Session Migration}
+\textbf{Setup:} Client $C_4$ initially connected to follower $F_1$. Migrates mid-run to $F_2$.
+\textbf{Actions:}
+$L$: \texttt{SetData("/n", "x")} then \texttt{SetData("/n", "y")}.
+$C_4$ reads \texttt{GetData("/n")} from $F_1$, migrates, then continues reading on $F_2$.
+\textbf{Expected Result:} No backwards reads: after observing ``y'' on $F_1$, reads on 
+$F_2$ never return ``x''. Followers must not serve ilder states than those already observed.
+
+\subsection{Cross-Node Consistency}
+\subsubsection{Test 5: Writes on Leader, Reads on All Nodes}
+\textbf{Setup:} Five-node cluster. Clients $C_1\dots C5$ connected to different nodes.
+\textbf{Actions:} Leader performs:
+\begin{enumerate}
+    \item \texttt{Create("/k"),"alpha"}.
+    \item \texttt{SetData("/k", "beta")}
+\end{enumerate}
+\textbf{Observation:} All clients repeatedly read \texttt{GetData("/k")} for 5 seconds.
+\textbf{Expected Result:} All nodes converge to ``beta''. No node returns a value outside the committed sequence.
+Temporary follower lag is acceptable.
+
+\subsubsection{Failure Recovery}
+\subsubsection{Test 6: Leader Crash After Append, Before Commit}
+\textbf{Setup:} Three-node cluster. Followers $F_1$, $F_2$.
+\textbf{Actions:}
+Leader $L$ appends \texttt{SetData("/r", "new")} then crashes \emph{before} receiving a quorum ACK.
+\textbf{Observation:} Reads on $F_1$ and $F_2$ via \texttt{GetData("/r)}.
+\textbf{Expected Result:} Value remains the old value. The uncommitted write is discarded after new leader election. No 
+partial visibility.
+
+\subsection{Quorum and Availability}
+\subsubsection{Test 7: Minority Partition Unavailable for Writes}
+\textbf{Setup:} Five-node cluster partitioned into 3-node majority and 2-node minority.  
+\textbf{Actions:} Clients attempt writes in both partitions.  
+\textbf{Expected Result:}  
+\begin{itemize}
+  \item Majority partition continues serving writes normally.
+  \item Minority partition rejects or blocks writes.
+  \item Minority reads may lag or fail.
+  \item After healing, minority catches up from leader log.
+\end{itemize}
+
 \section{Conclusions}
 \lipsum[1]
 
