@@ -165,6 +165,7 @@ func (s *RaftServer) doLeader(ctx context.Context) {
 				PrevLogIndex: uint64(prevLogIndex),
 				PrevLogTerm:  uint64(prevLogTerm),
 				Entries:      entriesToSend,
+				LeaderCommit: uint64(s.log.GetCommitIndex()),
 			}
 
 			go func(peerConn raftpb.RaftClient, responses chan<- incomingAEResponse) {
