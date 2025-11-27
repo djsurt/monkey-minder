@@ -54,7 +54,7 @@ type RaftServer struct {
 	// intermediary, client msgs folded into one channel
 	clientMessagesIncoming chan clientMsg
 	// client msgs to actually be handled
-	clientMessages chan clientMsg
+	clientMessages          chan clientMsg
 	clientLeaderMessageDone chan struct{}
 	watches                 *WatchManager
 }
@@ -72,6 +72,7 @@ func NewRaftServer(port int, id NodeId, peers map[NodeId]string) *RaftServer {
 		aeResponseChan:         make(chan *raftpb.AppendEntriesResult),
 		rvRequestChan:          make(chan *raftpb.VoteRequest),
 		rvResponseChan:         make(chan *raftpb.Vote),
+		clientSessions:         make(map[sessionId]*clientSession),
 		clientMessages:         make(chan clientMsg),
 		clientMessagesIncoming: make(chan clientMsg),
 		watches:                NewWatchManager(),
