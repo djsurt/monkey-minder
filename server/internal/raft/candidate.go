@@ -43,6 +43,7 @@ func (s *RaftServer) doCandidate(ctx context.Context) {
 				if len(votes) > (len(s.peerConns)+1)/2 {
 					log.Printf("Asserting myself as LEADER.\n")
 					s.state = LEADER
+					s.leader = s.Id
 					cancelElection()
 					return
 				}
