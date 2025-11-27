@@ -42,6 +42,7 @@ type RaftServer struct {
 	grpcServer        *grpc.Server
 	listener          net.Conn
 	peerConns         map[NodeId]raftpb.RaftClient
+	mmConns           map[NodeId]mmpb.MonkeyMinderServiceClient
 	term              Term
 	votedFor          NodeId
 	log               *Log
@@ -168,6 +169,8 @@ func (s *RaftServer) connectToPeers() error {
 	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	peerConns := make(map[NodeId]raftpb.RaftClient)
+	mmConns := make(map[NodeId]mmpb.MonkeyMinderServiceClient)
+
 	for peer, addr := range s.peers {
 		conn, err := grpc.NewClient(addr, opts...)
 		if err != nil {
@@ -175,8 +178,12 @@ func (s *RaftServer) connectToPeers() error {
 		}
 		client := raftpb.NewRaftClient(conn)
 		peerConns[peer] = client
+
+		mmClient := mmpb.NewMonkeyMinderServiceClient(conn)
+		mmConns[peer] = mmClient
 	}
 
 	s.peerConns = peerConns
+	s.mmConns = mmConns
 	return nil
 }
