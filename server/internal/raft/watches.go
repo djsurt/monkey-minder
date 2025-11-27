@@ -20,7 +20,9 @@ type WatchManager struct {
 }
 
 func NewWatchManager() *WatchManager {
-	panic("TODO")
+	return &WatchManager{
+		watches: make([]watch, 0),
+	}
 }
 
 func (handler *WatchManager) AddWatch(predicate WatchPredicate) <-chan struct{} {
