@@ -88,7 +88,10 @@ func (log *Log[E, S]) Commit(idx Index) error {
 		if err != nil {
 			return err
 		}
-		log.tailSnapshot.ApplyEntry(*entry)
+		err = log.tailSnapshot.ApplyEntry(*entry)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
