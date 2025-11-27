@@ -223,8 +223,8 @@ func (s *RaftServer) doLeader(ctx context.Context) {
 			s.log.Append(&raftpb.LogEntry{
 				Kind:       raftpb.LogEntryType_CREATE,
 				Term:       uint64(s.term),
-				TargetPath: "foo",
-				Value:      "qux",
+				TargetPath: "/foo",
+				Value:      time.Now().Format(time.DateTime),
 			})
 		}
 	}
