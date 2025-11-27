@@ -206,6 +206,7 @@ Key operations include:
     old entries into the head snapshot, freeing memory.
     \item \texttt{TruncateAt}: delete uncommitted suffixes when reconciling divergent log with a new leader.
 \end{itemize}
+
 % \begin{figure}[h]
 %     \centering
 %     \includegraphics[width=2.5in]{test-uml.mmd.pdf}
@@ -418,8 +419,38 @@ Derp.
 \lipsum[1]
 
 \section{Testing}
-\lipsum[1]
 
+To validate linearizability, monotonic reads, cross-node consistency, and failure recovery,
+we designed a set of test cases across 3 to 5 node clusers. Each test is described with its setup, actions, observations,
+and expected results.
+
+\subsection{Linearizable Writes}
+
+\subsubsection{Test 1: Single-Leader Sequential Create/Update}
+\textbf{Setup:} Three-node cluster. A Leader $L$ is elected. A client $C_1$ is connected to $L$.
+
+\textbf{Actions:}
+\begin{enumerate}
+    \item $C_1$: \texttt{Create("/foo", "v1")}
+    \item $C_1$: \texttt{SetData("/foo", "v2", -1)}
+    \item $C_1$: \texttt{SetData("/foo", "v3", -1)}
+    \item After each write, $C_1$ immediately issues \texttt{GetData("/foo")}.
+\end{enumerate}
+\textbf{Expected Result:} Reads return \emph{v1}, then \emph{v2}, then \emph{v3} in strict order.
+No reordering, skipping or stale values.
+
+\subsubsection{Test 2: Concurrent Writes Ordered by Leader}
+\textbf{Setup:} Three-node cluster. Clients $C_1$ and $C_2$ connected to Leader $L$.
+\textbf{Actions:} $C_1$ and $C_2$ concurrently issue \texttt{SetData("/bar", "A", -1)}
+and \texttt{SetData("/bar", "B", -1)}.
+\textbf{Observation:} After success, all clients read \texttt{GetData("/bar")} on $C_1$,
+$C_2$, and follower $F$.
+\textbf{Expected Result:} All nodes converge on a single final value in the leader's chosen
+serialization order (either $A \rightarrow B$ or $B \rightarrow A$).
+No interleaving or non-linearizable outcomes.
+
+\subsection{Monotonic Reads}
+\subsubsection{Test 3: Read-Only Client Monotonicity}
 \section{Conclusions}
 \lipsum[1]
 
