@@ -103,7 +103,28 @@ clientLoop:
 
 func (s *RaftServer) handleClientMessage(msg clientMsg) {
 	if msg.msg.IsLeaderOnly() {
-		panic("TODO")
+		if s.state == LEADER {
+			response, newEntries := msg.msg.DoMessage(*s.log.Latest())
+
+			// TODO: Make this a transaction so we can rollback upon failure
+			for _, entry := range newEntries {
+				err := s.log.Append(entry)
+				if err != nil {
+					log.Panicf("Transaction failed and rollback is not implemented: %v\n", err)
+				}
+			}
+			consensusDone := s.watches.AddWatch(msg.msg.WatchTest)
+			go func() {
+				<-consensusDone
+				session := s.clientSessions[msg.sessionId]
+				if session.isLive {
+					session.responseChan <- response
+				}
+			}()
+		} else {
+			// TODO
+			panic("Leader forwarding not implemented!")
+		}
 	} else {
 		currentState := *s.log.Latest()
 		response, newEntries := msg.msg.DoMessage(currentState)
