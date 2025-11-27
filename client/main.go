@@ -42,6 +42,15 @@ func main() {
 		panic(err)
 	}
 
+	log.Println("Submitting Create /bar...")
+	<-client.Create("/bar", "meow")
+	log.Println("Submitting GetData /bar...")
+	bar := <-client.GetData("/bar", nil)
+	fmt.Printf("Got data from /bar: %v\n", bar)
+	fmt.Println("Submitting Delete /bar...")
+	<-client.Delete("/bar", -1)
+	fmt.Println("Deleted /bar...")
+
 	for {
 		currentFoo := <-client.GetData("/foo", nil)
 		log.Printf("got value: %v", currentFoo)
