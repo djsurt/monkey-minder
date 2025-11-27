@@ -226,6 +226,9 @@ func (s *RaftServer) doLeader(ctx context.Context) {
 				TargetPath: "/foo",
 				Value:      time.Now().Format(time.DateTime),
 			})
+		case msg := <-s.clientMessages:
+			log.Printf("going into msg handle. commit index = %v", s.log.GetCommitIndex())
+			s.handleClientMessage(msg)
 		}
 	}
 }

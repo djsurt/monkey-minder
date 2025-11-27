@@ -68,13 +68,25 @@ func (s *RaftServer) Session(server grpc.BidiStreamingServer[clientapi.ClientReq
 		}
 	}()
 
-sendLoop:
+	go func() {
+		for {
+			select {
+			case <-subCtx.Done():
+				return
+			case resp := <-responseChan:
+				// FIXME handle any errs from this
+				server.Send(resp)
+			}
+		}
+	}()
+
+clientLoop:
 	for {
 		select {
 		case <-subCtx.Done():
-			break sendLoop
+			break clientLoop
 		case err = <-recvError:
-			break sendLoop
+			break clientLoop
 		case request := <-requestChan:
 			log.Printf("Received request: %v\n", request)
 			s.clientMessagesIncoming <- clientMsg{
@@ -85,6 +97,9 @@ sendLoop:
 	}
 
 	return
+}
+
+func (s *RaftServer) handleClientMessage(msg clientMsg) {
 }
 
 // TODO give this a better name
