@@ -94,12 +94,22 @@ func (s *RaftServer) doLeader(ctx context.Context) {
 		lp.markShouldAE()
 	}
 
-	s.log.Append(&raftpb.LogEntry{
-		Kind:       raftpb.LogEntryType_CREATE,
-		Term:       uint64(s.term),
-		TargetPath: "/foo",
-		Value:      "<initial value>",
-	})
+	{
+		log.Printf("A")
+		_, err := (*s.log.Latest()).Get("/foo")
+		if err != nil {
+			err := s.log.Append(&raftpb.LogEntry{
+				Kind:       raftpb.LogEntryType_CREATE,
+				Term:       uint64(s.term),
+				TargetPath: "/foo",
+				Value:      "<initial value>",
+			})
+			if err != nil {
+				panic(err)
+			}
+		}
+		log.Printf("B")
+	}
 
 	for {
 		select {
@@ -247,12 +257,15 @@ func (s *RaftServer) doLeader(ctx context.Context) {
 				lp.markShouldAE()
 			}
 		case <-testingAppendsTimer.C:
-			s.log.Append(&raftpb.LogEntry{
+			err := s.log.Append(&raftpb.LogEntry{
 				Kind:       raftpb.LogEntryType_UPDATE,
 				Term:       uint64(s.term),
 				TargetPath: "/foo",
 				Value:      time.Now().Format(time.DateTime),
 			})
+			if err != nil {
+				panic(err)
+			}
 		case msg := <-s.clientMessages:
 			log.Printf("going into msg handle. commit index = %v", s.commitPoint.Index())
 			s.handleClientMessage(msg)
