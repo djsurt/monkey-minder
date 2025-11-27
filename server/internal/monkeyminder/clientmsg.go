@@ -69,6 +69,15 @@ func (c *Create) DoMessage(currentState *tree.Tree) (*mmpb.ServerResponse, []*ra
 		Value:      c.Data,
 	}
 
+	node, err := currentState.Get(c.Path)
+	// Node exists; reject
+	if node != "" && err != nil {
+		return &mmpb.ServerResponse{
+			Succeeded: false,
+			Data:      nil,
+		}, nil
+	}
+
 	response := &mmpb.ServerResponse{
 		Succeeded: true,
 		Data:      &c.Data,
