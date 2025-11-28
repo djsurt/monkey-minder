@@ -436,15 +436,20 @@ and expected results.
     \item $C_1$: \texttt{SetData("/foo", "v3", -1)}
     \item After each write, $C_1$ immediately issues \texttt{GetData("/foo")}.
 \end{enumerate}
+
 \textbf{Expected Result:} Reads return \emph{v1}, then \emph{v2}, then \emph{v3} in strict order.
 No reordering, skipping or stale values.
 
 \subsubsection{Test 2: Concurrent Writes Ordered by Leader}
+
 \textbf{Setup:} Three-node cluster. Clients $C_1$ and $C_2$ connected to Leader $L$.
+
 \textbf{Actions:} $C_1$ and $C_2$ concurrently issue \texttt{SetData("/bar", "A", -1)}
 and \texttt{SetData("/bar", "B", -1)}.
+
 \textbf{Observation:} After success, all clients read \texttt{GetData("/bar")} on $C_1$,
 $C_2$, and follower $F$.
+
 \textbf{Expected Result:} All nodes converge on a single final value in the leader's chosen
 serialization order (either $A \rightarrow B$ or $B \rightarrow A$).
 No interleaving or non-linearizable outcomes.
@@ -452,18 +457,24 @@ No interleaving or non-linearizable outcomes.
 \subsection{Monotonic Reads}
 
 \subsubsection{Test 3: Read-Only Client Monotonicity}
+
 \textbf{Setup:} Client $C_3$ reads from $F$. Leader $L$ performs updates.
+
 \textbf{Actions:}
 $L$: \texttt{SetData("/m", "1")} then \texttt{SetData("/m", "2")}.
 $C_3$ polls \texttt{GetData("/m)} every 100ms.
+
 \textbf{Expected Result:} Observed values are monotonic: once $C_3$ sees ``2'', it never
 returns ``1'' again. Temporary lag is allowed but regressions are not.
 
 \subsubsection{Test 4: Monotonic Reads Across Session Migration}
+
 \textbf{Setup:} Client $C_4$ initially connected to follower $F_1$. Migrates mid-run to $F_2$.
+
 \textbf{Actions:}
 $L$: \texttt{SetData("/n", "x")} then \texttt{SetData("/n", "y")}.
 $C_4$ reads \texttt{GetData("/n")} from $F_1$, migrates, then continues reading on $F_2$.
+
 \textbf{Expected Result:} No backwards reads: after observing ``y'' on $F_1$, reads on 
 $F_2$ never return ``x''. Followers must not serve ilder states than those already observed.
 
