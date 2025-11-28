@@ -224,8 +224,65 @@ Key operations include:
 \lipsum[3]
 
 \section{Evaluation}
-\lipsum[1]
+\subsection {Approach Evaluation}
+Our system uses Raft-based primary backup replication to implement a strongly consistent metadata stire.
+The approach is appropriate because Raft provides a well-specified, leader-driven consensus protocol that is easier
+to implement correctly than Paxos while providing equivalent safety guaranteed. The system obtains linearizable writes,
+monotonic reads, and crash-failure tolerance through its use of term-based leader election, quorum-based log replication,
+ans a state machine driven replicated log.
 
+Raft's correctness is due to the following invariants:
+(1) at most one leader is elected per term
+(2) leaders never overrite committed log entries,
+(3) the log-matching property ensures all prefixes of log converge.
+Our implementation enforces these through:
+\begin{itemie}
+    \item \textbf{Randomized election timeouts} (\texttt{DEFAULT\_MIN\_TIMEOUT}-\texttt{DEFAULT\_MAX\_TIMEOUT}) ensuring split-vote resolution.
+    \item \textbf{Term discipline}: RPC handlers check and update terms, forcing candidates and leaders to revert to followers on higher terms.
+    \item \textbf{Log matching \& conflict repair}: followers reject mismatched \texttt{prevLogIndex}/\texttt{prevLogTerm} and truncate to the last matching prefix via \texttt{reconcileLogs()}.
+    \item \textbf{Commit index advancement}: leaders compute the majority-replicated index across followers and safely advance commit state.
+    \item \textbf{State machine application}: committed entries are applied to the heirarchical tree structire, maintaining deterministic state evolution across replicas.
+\end{itemize}
+
+The algorithmic complexity reflects standard Raft complexity:
+\begin{itemize}
+    \item Leader election completes in $O(n)$ messages.
+    \item Log replication is $O(k)$ for $k$ new entries, with conflict repair costing up to $O(\ell)$ in worst case log-divergence.
+    \item Steady-state operation requires $O(n)$ heartbeats per period.
+    \item State lookups in the tree operates in $O(h)$ where $h$ is the path depth.
+\end{itemize}
+
+Raft's simplicity allowed us to write a clean, channel-driven state machine in Go, where all the consensus dependant transitions occue in a
+single gorouting (\texttt{doFollower}, \texttt{doCandidate}, \texttt{doLeader}).
+This eliminates races in shared data without requiring explicit locks.
+
+\subsection{Evaluation of Key Distributed-System Properties}
+
+\subsubsection{Fault Tolerance}
+
+Our system tolerates crash failures of leaders and followers by:
+\begin{itemize}
+    \item Having followers promote themselves when their election timeout fires.
+    \item Forcing leaders and candidates to step down immediately on observing higher-term RPCs.
+    \item Ensuring committed entries survive leader crashes via quorum replication and the log-matching rule. 
+\end{itemize}
+
+Test cases validate:
+\begin{itemize}
+    \item \textbf{Leader crash before commit} -> entry never becomes visible. (Test 6).
+    \item \textbf{Leader crash after commit} -> new leader preserves committed state (Test 7).
+\end{itemize}
+
+\subsubsection{Performance}
+
+The design emphasizes:
+\begin{itemize}
+    \item \textbf{Asynchronous, pipelined replication}: leaders and send AppendEntries in parallel to all followers.
+  \item \textbf{Low contention}: only one goroutine mutates Raft state; RPC handlers defer to channels.
+  \item \textbf{Incremental commit}: the leader commits entries as soon as a majority acknowledges, avoiding batching delays.
+  \item \textbf{Client–server streaming}: clients maintain a bidirectional streaming session for low-latency updates.
+\end{itemize}
+ 
 \section{Implementation Details}
 Our implementation is divided into two main layers: the Client API Layer and the Consensus Layer.
 
