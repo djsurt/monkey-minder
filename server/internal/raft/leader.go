@@ -246,7 +246,7 @@ func (s *RaftServer) doLeader(ctx context.Context) {
 							if err != nil {
 								log.Panicf("Could not retrieve log entry at index %d. This entry should already be there!\n", i)
 							}
-							s.watches.SubmitEntry(*entry)
+							s.watches.SubmitEntry(*entry, i)
 						}
 					}
 				}

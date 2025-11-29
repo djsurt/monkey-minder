@@ -75,16 +75,17 @@ func NewRaftServer(port int, id NodeId, peers map[NodeId]string) *RaftServer {
 		state: FOLLOWER,
 		term:  1,
 		// TODO should be loading from disk instead in the case where we do that
-		log:                    log,
-		commitPoint:            commitPoint,
-		aeRequestChan:          make(chan *raftpb.AppendEntriesRequest),
-		aeResponseChan:         make(chan *raftpb.AppendEntriesResult),
-		rvRequestChan:          make(chan *raftpb.VoteRequest),
-		rvResponseChan:         make(chan *raftpb.Vote),
-		clientSessions:         make(map[sessionId]*clientSession),
-		clientMessages:         make(chan clientMsg),
-		clientMessagesIncoming: make(chan clientMsg),
-		watches:                NewWatchManager(),
+		log:                     log,
+		commitPoint:             commitPoint,
+		aeRequestChan:           make(chan *raftpb.AppendEntriesRequest),
+		aeResponseChan:          make(chan *raftpb.AppendEntriesResult),
+		rvRequestChan:           make(chan *raftpb.VoteRequest),
+		rvResponseChan:          make(chan *raftpb.Vote),
+		clientSessions:          make(map[sessionId]*clientSession),
+		clientMessages:          make(chan clientMsg),
+		clientMessagesIncoming:  make(chan clientMsg),
+		clientLeaderMessageDone: make(chan struct{}),
+		watches:                 NewWatchManager(),
 	}
 }
 
