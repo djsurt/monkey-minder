@@ -173,19 +173,15 @@ The \texttt{RaftServer} type represents a single Raft node. It maintains the nod
 current role (\texttt{FOLLOWER}, \texttt{CANDIDATE}, \texttt{LEADER}), current term, the node it voted for,
 gRPC server state, a replicated log, and per-RPC channels for AppendEntries and RequestVote. 
 
-The lifecycle is driven by the \texttt{doLoop}, which dispatches to state-specific loops:
-\begin{itemize}
-    \item \texttt{doFollower}: waits for AppendEntries and RequestVote requests,
-    resetting its election timer on each valid interaction. If the time expires, the node
-    promotes itself to \texttt{CANDIDATE}.
-    \item \texttt{doCandidate}: increments its term, votes for itself, and sends parallel
-    RequestVote RPCs to all peers. It becomes \texttt{LEADER} upon winning a majority,
-    reverts to \texttt{FOLLOWER} if it sees a higher term, or restarts the election on timeout.
-    \item \texttt{doLeader}: manages per-follower replication pointers
-    (\texttt{nextIndex} and \texttt{matchIndex}), sends AppendEntries heartbearts and log entries,
-    and responds to vote and AppendEntries RPCs from other nodes, stepping down when 
-    observing a higher term.
-\end{itemize}
+The lifecycle is driven by the \texttt{doLoop}, which dispatches to state-specific loops. The {doFollower}
+loop waits for AppendEntries and RequestVote requests. It resets its election timer on each valid interaction.
+If the timer expires, the node promotes itself to \texttt{CANDIDATE}. The \texttt{doCandidate} loop handles all the
+logic for the voting mechanism during leader election. It increments its term, votes for itself, and sends parallel
+RequestVote RPCs to all peers. The \texttt{CANDIDATE} becomes \texttt{LEADER} upon winning a majority.
+It reverts to \texttt{FOLLOWER} if it sees a higher term, or restarts the election on timeout. The \texttt{doLeader}
+loop manages per-follower replication pointers (\texttt{nextIndex} and \texttt{matchIndex}). It sends AppendEntries
+heartbeats and log entires, and responds to vote and AppendEntries RPCs from other nodes, stepping down when observing a higher
+term.
 
 \subsubsection{Log and Snapshot Module}
 The replicated log maintains:
@@ -260,14 +256,12 @@ This eliminates races in shared data without requiring explicit locks.
 
 \subsubsection{Fault Tolerance}
 
-Our system tolerates crash failures of leaders and followers by:
-\begin{itemize}
-    \item Having followers promote themselves when their election timeout fires.
-    \item Forcing leaders and candidates to step down immediately on observing higher-term RPCs.
-    \item Ensuring committed entries survive leader crashes via quorum replication and the log-matching rule. 
-\end{itemize}
+Our system tolerates crash failures of leaders and followers by a combination of mechanisms.
+One such way is having followers promote themselves when their election timeout fires. Another one is forcing leaders and candidates
+to step down immediately on observing higher-term RPCs. Finally, we ensuring committed entries survive leader crashes via quorum replication
+and the log-matching rule.
 
-Test cases validate:
+Our Test cases validate:
 \begin{itemize}
     \item \textbf{Leader crash before commit} -> entry never becomes visible. (Test 6).
     \item \textbf{Leader crash after commit} -> new leader preserves committed state (Test 7).
@@ -275,14 +269,23 @@ Test cases validate:
 
 \subsubsection{Performance}
 
-The design emphasizes:
-\begin{itemize}
-    \item \textbf{Asynchronous, pipelined replication}: leaders and send AppendEntries in parallel to all followers.
-  \item \textbf{Low contention}: only one goroutine mutates Raft state; RPC handlers defer to channels.
-  \item \textbf{Incremental commit}: the leader commits entries as soon as a majority acknowledges, avoiding batching delays.
-  \item \textbf{Client–server streaming}: clients maintain a bidirectional streaming session for low-latency updates.
-\end{itemize}
- 
+We have several design choices that optimize low-latenct and high throughput. We use asynchronous and pipleines replication by having
+Leaders send AppendEntries in parallel to all followers. Another intentional design choice is having only one gorouting 
+mutate the Raft state and the RPC handlers defer to channels, which reduces contention. We also implement incremental commit by having
+the leader commit entries as soon as a majority acknowledges, avoiding batching delays. Finally, we use client-server streaming so that clients maintain a bidirectional streaming session for low-latency updates.
+
+\subsubsection{Scalability}
+The system scales horizontally using more Raft nodes. Writes cost $O(n)$ messages but remain performant for typical 
+quorum sizes (3-7 nodes). Reads scale nearly linearly because they can be served by any follower for non-mutating requests.
+The log layer supports compaction (\texttt{SquashFirstN}, \texttt{TruncateAt}) ensuring logs don't grow unbounded.
+
+\subsubsection{Consistency}
+
+We acheive \textbf{linearizable writes} and \textbf{monotonic reads} in our system. One of the factors that let us acheive this is the
+leader-serialization of all client updates. The other important factor is the strict-prefix agreement enforced by \texttt{doCommonAE()} 
+and \texttt{reconcileLogs()}, which ensures that followers never diverge from the leader's log. Finally, followers apply committed entries
+strictly in order through log checkpoints.
+
 \section{Implementation Details}
 Our implementation is divided into two main layers: the Client API Layer and the Consensus Layer.
 
