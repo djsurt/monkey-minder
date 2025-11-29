@@ -7,7 +7,9 @@ import (
 	"log"
 
 	mmpb "github.com/djsurt/monkey-minder/proto"
+	raftlog "github.com/djsurt/monkey-minder/server/internal/log"
 	"github.com/djsurt/monkey-minder/server/internal/monkeyminder"
+	raftpb "github.com/djsurt/monkey-minder/server/proto/raft"
 	"google.golang.org/grpc"
 )
 
@@ -105,6 +107,10 @@ func (s *RaftServer) handleClientMessage(msg clientMsg) {
 	if msg.msg.IsLeaderOnly() {
 		if s.state == LEADER {
 			response, newEntries := msg.msg.DoMessage(*s.log.Latest())
+			response.Id = uint64(msg.msg.GetId())
+			for _, entry := range newEntries {
+				entry.Term = uint64(s.term)
+			}
 
 			// TODO: Make this a transaction so we can rollback upon failure
 			for _, entry := range newEntries {
@@ -113,13 +119,17 @@ func (s *RaftServer) handleClientMessage(msg clientMsg) {
 					log.Panicf("Transaction failed and rollback is not implemented: %v\n", err)
 				}
 			}
-			consensusDone := s.watches.AddWatch(msg.msg.WatchTest)
+			highestAwaitedIndex := s.log.IndexOfLast()
+			consensusDone := s.watches.AddWatch(func(committedEntry *raftpb.LogEntry, index raftlog.Index) bool {
+				return index >= highestAwaitedIndex
+			})
 			go func() {
 				<-consensusDone
 				session := s.clientSessions[msg.sessionId]
 				if session.isLive {
 					session.responseChan <- response
 				}
+				s.clientLeaderMessageDone <- struct{}{}
 			}()
 		} else {
 			// TODO
