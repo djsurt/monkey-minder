@@ -93,6 +93,7 @@ func (c *Create) DoLeaderForward(leader *monkeyminder.Client) <-chan *mmpb.Serve
 	go func() {
 		data := <-leader.Create(c.Path, c.Data)
 		responseChan <- &mmpb.ServerResponse{
+			Id:   uint64(c.Id),
 			Data: &data,
 		}
 	}()
@@ -148,7 +149,9 @@ func (d *Delete) DoLeaderForward(leader *monkeyminder.Client) <-chan *mmpb.Serve
 	responseChan := make(chan *mmpb.ServerResponse)
 	go func() {
 		<-leader.Delete(d.Path, monkeyminder.Version(d.Version))
-		responseChan <- &mmpb.ServerResponse{}
+		responseChan <- &mmpb.ServerResponse{
+			Id: uint64(d.Id),
+		}
 	}()
 	return responseChan
 }
@@ -301,7 +304,7 @@ func (m *SetData) DoLeaderForward(leader *monkeyminder.Client) <-chan *mmpb.Serv
 	responseChan := make(chan *mmpb.ServerResponse)
 	go func() {
 		<-leader.SetData(m.Path, m.Data, monkeyminder.Version(m.Version))
-		responseChan <- &mmpb.ServerResponse{}
+		responseChan <- &mmpb.ServerResponse{Id: uint64(m.Id)}
 	}()
 	return responseChan
 }
