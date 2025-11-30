@@ -3,6 +3,7 @@ package monkeyminder
 import (
 	"strings"
 
+	monkeyminder "github.com/djsurt/monkey-minder"
 	mmpb "github.com/djsurt/monkey-minder/proto"
 	"github.com/djsurt/monkey-minder/server/internal/tree"
 	raftpb "github.com/djsurt/monkey-minder/server/proto/raft"
@@ -35,6 +36,7 @@ type ClientMessage interface {
 	DoMessageWatch(currentState *tree.Tree) (response *mmpb.ServerResponse)
 
 	GetId() MessageId
+	DoLeaderForward(leader *monkeyminder.Client) <-chan *mmpb.ServerResponse
 }
 
 type MessageId uint64
@@ -86,6 +88,17 @@ func (c *Create) DoMessage(currentState *tree.Tree) (*mmpb.ServerResponse, []*ra
 	return response, []*raftpb.LogEntry{entry}
 }
 
+func (c *Create) DoLeaderForward(leader *monkeyminder.Client) <-chan *mmpb.ServerResponse {
+	responseChan := make(chan *mmpb.ServerResponse)
+	go func() {
+		data := <-leader.Create(c.Path, c.Data)
+		responseChan <- &mmpb.ServerResponse{
+			Data: &data,
+		}
+	}()
+	return responseChan
+}
+
 func (c *Create) WatchTest(entry *raftpb.LogEntry) bool {
 	samePath := entry.TargetPath == c.Path
 	isCreate := entry.Kind == raftpb.LogEntryType_CREATE
@@ -131,6 +144,15 @@ func (d *Delete) DoMessageWatch(currentState *tree.Tree) *mmpb.ServerResponse {
 	panic("Delete does not support watches")
 }
 
+func (d *Delete) DoLeaderForward(leader *monkeyminder.Client) <-chan *mmpb.ServerResponse {
+	responseChan := make(chan *mmpb.ServerResponse)
+	go func() {
+		<-leader.Delete(d.Path, monkeyminder.Version(d.Version))
+		responseChan <- &mmpb.ServerResponse{}
+	}()
+	return responseChan
+}
+
 type Exists struct {
 	SimpleMessageCommon
 	WatchMessageCommon
@@ -165,6 +187,10 @@ func (e *Exists) DoMessageWatch(currentState *tree.Tree) *mmpb.ServerResponse {
 	return &mmpb.ServerResponse{
 		Succeeded: err == nil,
 	}
+}
+
+func (e *Exists) DoLeaderForward(leader *monkeyminder.Client) <-chan *mmpb.ServerResponse {
+	panic("Exists does not support leader forwarding.")
 }
 
 type GetData struct {
@@ -211,6 +237,10 @@ func (m *GetData) DoMessageWatch(currentState *tree.Tree) (
 	response *mmpb.ServerResponse,
 ) {
 	panic("Not implemented!")
+}
+
+func (m *GetData) DoLeaderForward(leader *monkeyminder.Client) <-chan *mmpb.ServerResponse {
+	panic("Exists does not support leader-forwarding")
 }
 
 type SetData struct {
@@ -265,6 +295,15 @@ func (m *SetData) DoMessageWatch(currentState *tree.Tree) (
 	response *mmpb.ServerResponse,
 ) {
 	panic("SetData does not support watches")
+}
+
+func (m *SetData) DoLeaderForward(leader *monkeyminder.Client) <-chan *mmpb.ServerResponse {
+	responseChan := make(chan *mmpb.ServerResponse)
+	go func() {
+		<-leader.SetData(m.Path, m.Data, monkeyminder.Version(m.Version))
+		responseChan <- &mmpb.ServerResponse{}
+	}()
+	return responseChan
 }
 
 type GetChildren struct {
@@ -325,4 +364,8 @@ func (m *GetChildren) DoMessageWatch(currentState *tree.Tree) (
 	response *mmpb.ServerResponse,
 ) {
 	panic("not implemented")
+}
+
+func (m *GetChildren) DoLeaderForward(leader *monkeyminder.Client) <-chan *mmpb.ServerResponse {
+	panic("GetChildren does not support leader forwarding.")
 }
