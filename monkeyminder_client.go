@@ -2,6 +2,9 @@ package monkeyminder
 
 import (
 	"context"
+	"errors"
+	"io"
+	"log"
 
 	mmpb "github.com/djsurt/monkey-minder/proto"
 	"google.golang.org/grpc"
@@ -84,8 +87,12 @@ func (client *Client) handleResponses() {
 	for {
 		resp, err := client.session.Recv()
 		if err != nil {
-			// TODO handle this properly
-			panic(err)
+			switch {
+			case errors.Is(err, io.EOF):
+				return
+			default:
+				log.Printf("Error handling Client API response: %v\n", err)
+			}
 		}
 		if client.ctx.Err() != nil {
 			return
