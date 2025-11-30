@@ -5,11 +5,13 @@ package raft
 import (
 	"context"
 	"fmt"
+	"log"
 	"math/rand"
 	"net"
 	"sync/atomic"
 	"time"
 
+	monkeyminder "github.com/djsurt/monkey-minder"
 	mmpb "github.com/djsurt/monkey-minder/proto"
 	raftlog "github.com/djsurt/monkey-minder/server/internal/log"
 	tree "github.com/djsurt/monkey-minder/server/internal/tree"
@@ -42,7 +44,7 @@ type RaftServer struct {
 	grpcServer        *grpc.Server
 	listener          net.Conn
 	peerConns         map[NodeId]raftpb.RaftClient
-	mmConns           map[NodeId]mmpb.MonkeyMinderServiceClient
+	mmConns           map[NodeId]*monkeyminder.Client
 	term              Term
 	votedFor          NodeId
 	log               *Log
@@ -170,7 +172,7 @@ func (s *RaftServer) connectToPeers() error {
 	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	peerConns := make(map[NodeId]raftpb.RaftClient)
-	mmConns := make(map[NodeId]mmpb.MonkeyMinderServiceClient)
+	mmConns := make(map[NodeId]*monkeyminder.Client)
 
 	for peer, addr := range s.peers {
 		conn, err := grpc.NewClient(addr, opts...)
@@ -180,7 +182,10 @@ func (s *RaftServer) connectToPeers() error {
 		client := raftpb.NewRaftClient(conn)
 		peerConns[peer] = client
 
-		mmClient := mmpb.NewMonkeyMinderServiceClient(conn)
+		mmClient, err := monkeyminder.NewClient(context.Background(), addr)
+		if err != nil {
+			log.Printf("Error creating monkeyminder service connection w/ peer: %v\n", err)
+		}
 		mmConns[peer] = mmClient
 	}
 

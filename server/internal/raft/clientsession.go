@@ -104,6 +104,7 @@ clientLoop:
 }
 
 func (s *RaftServer) handleClientMessage(msg clientMsg) {
+	session := s.clientSessions[msg.sessionId]
 	if msg.msg.IsLeaderOnly() {
 		if s.state == LEADER {
 			response, newEntries := msg.msg.DoMessage(*s.log.Latest())
@@ -125,15 +126,20 @@ func (s *RaftServer) handleClientMessage(msg clientMsg) {
 			})
 			go func() {
 				<-consensusDone
-				session := s.clientSessions[msg.sessionId]
 				if session.isLive {
 					session.responseChan <- response
 				}
 				s.clientLeaderMessageDone <- struct{}{}
 			}()
 		} else {
-			// TODO
-			panic("Leader forwarding not implemented!")
+			leaderClient := s.mmConns[s.leader]
+			go func() {
+				response := <-msg.msg.DoLeaderForward(leaderClient)
+				if session.isLive {
+					session.responseChan <- response
+				}
+				s.clientLeaderMessageDone <- struct{}{}
+			}()
 		}
 	} else {
 		currentState := *s.log.Latest()
@@ -142,7 +148,6 @@ func (s *RaftServer) handleClientMessage(msg clientMsg) {
 		if len(newEntries) > 0 {
 			panic("non-LeaderOnly messages must not attempt to append log entries")
 		}
-		session := s.clientSessions[msg.sessionId]
 		if session.isLive {
 			session.responseChan <- response
 		}
