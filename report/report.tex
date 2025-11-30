@@ -350,18 +350,7 @@ This shared handlign ensures both RPC types correctly implement Raft's term
 invariant regardless of current role.
 
 \subsubsection{AppendEntries Path (Follower \& Leader, \S5.3)}
-\texttt{doCommonAE} currently implements:
-(i) term checks per \S5.1,
-(ii) placeholder return of \texttt{Success=true} for non-conflicting cases.
-The log-consistency checks mandated by \S5.3 are marked as TODOs:
-\begin{enumerate}
-  \item Verify that the receiver’s log at \texttt{PrevLogIndex} has term \texttt{PrevLogTerm};
-  otherwise reply \texttt{Success=false}.
-  \item On conflict (same index, different term), delete the conflicting entry and all that follow.
-  \item Append new entries not already present; advance commitIndex if appropriate.
-\end{enumerate}
-While omitted for brevity in this iteration, the control flow and state transitions
-are structured to accommodate these steps.
+Need to fill out
 
 \subsubsection{RequestVote Path (Follower \& Candidate, \S5.2, \S5.4)}
 \texttt{doCommonRV} enforces:
