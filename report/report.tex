@@ -221,18 +221,18 @@ Key operations include:
 
 \section{Evaluation}
 \subsection {Approach Evaluation}
-Our system uses Raft-based primary backup replication to implement a strongly consistent metadata stire.
-The approach is appropriate because Raft provides a well-specified, leader-driven consensus protocol that is easier
+Our system uses Raft-based replication to implement a strongly consistent metadata store.
+Our approach is appropriate because Raft provides a well-specified, leader-driven consensus protocol that is easier
 to implement correctly than Paxos while providing equivalent safety guaranteed. The system obtains linearizable writes,
 monotonic reads, and crash-failure tolerance through its use of term-based leader election, quorum-based log replication,
 ans a state machine driven replicated log.
 
-Raft's correctness is due to the following invariants:
+Raft's correctness is due to the following:
 (1) at most one leader is elected per term
 (2) leaders never overrite committed log entries,
 (3) the log-matching property ensures all prefixes of log converge.
 Our implementation enforces these through:
-\begin{itemie}
+\begin{itemize}
     \item \textbf{Randomized election timeouts} (\texttt{DEFAULT\_MIN\_TIMEOUT}-\texttt{DEFAULT\_MAX\_TIMEOUT}) ensuring split-vote resolution.
     \item \textbf{Term discipline}: RPC handlers check and update terms, forcing candidates and leaders to revert to followers on higher terms.
     \item \textbf{Log matching \& conflict repair}: followers reject mismatched \texttt{prevLogIndex}/\texttt{prevLogTerm} and truncate to the last matching prefix via \texttt{reconcileLogs()}.
@@ -248,31 +248,31 @@ The algorithmic complexity reflects standard Raft complexity:
     \item State lookups in the tree operates in $O(h)$ where $h$ is the path depth.
 \end{itemize}
 
-Raft's simplicity allowed us to write a clean, channel-driven state machine in Go, where all the consensus dependant transitions occue in a
-single gorouting (\texttt{doFollower}, \texttt{doCandidate}, \texttt{doLeader}).
+Raft's simplicity allowed us to write a clean, channel-driven state machine in Go, where all the consensus dependant transitions occur in a
+single goroutine (\texttt{doFollower}, \texttt{doCandidate}, \texttt{doLeader}).
 This eliminates races in shared data without requiring explicit locks.
 
 \subsection{Evaluation of Key Distributed-System Properties}
 
 \subsubsection{Fault Tolerance}
 
-Our system tolerates crash failures of leaders and followers by a combination of mechanisms.
-One such way is having followers promote themselves when their election timeout fires. Another one is forcing leaders and candidates
-to step down immediately on observing higher-term RPCs. Finally, we ensuring committed entries survive leader crashes via quorum replication
-and the log-matching rule.
+Our system tolerates crash failures of leaders and followers by a combination of mechanisms. Followers use randomized election timeouts to detect leader failures and
+step up to candidates, which starts the leader election mechanism. Regardless of which state a node is in, it will revert to a follower once
+it receives an RPC with a higher term. Since every log entry is committed only when acknowledged by a majority, any commmitted update is guaranteed to survive
+leader crashes. 
 
-Our Test cases validate:
-\begin{itemize}
-    \item \textbf{Leader crash before commit} -> entry never becomes visible. (Test 6).
-    \item \textbf{Leader crash after commit} -> new leader preserves committed state (Test 7).
-\end{itemize}
+If a leader crashes before commit, followers do not expose the uncommitted update. If it crashes after commit, the new leader preserves the entry
+because it has already recorded i. This matches Raft's safety guaranees and is validated through our test cases (Test cases 6, 7). 
 
 \subsubsection{Performance}
 
-We have several design choices that optimize low-latenct and high throughput. We use asynchronous and pipleines replication by having
-Leaders send AppendEntries in parallel to all followers. Another intentional design choice is having only one gorouting 
-mutate the Raft state and the RPC handlers defer to channels, which reduces contention. We also implement incremental commit by having
-the leader commit entries as soon as a majority acknowledges, avoiding batching delays. Finally, we use client-server streaming so that clients maintain a bidirectional streaming session for low-latency updates.
+We have several design choices that optimize low-latency and high throughput. Our replication is fully pipelined: Our leader issues AppendEntries RPCs.
+concurrently to all peers, and followers respond asynchronously. The leader's inner loop is non-blocking except when waiting on
+client-related watches that ensure linearizability for leader-only operations.
+
+Reads are also efficiently processed. Non-mutating requests (\texttt{GetData}), \texttt{GetChildren} are handled locally by any follower
+without contacting the leader, significantly reducing load on the leader. This separation between read and write paths 
+reduces bottlenecks.
 
 \subsubsection{Scalability}
 The system scales horizontally using more Raft nodes. Writes cost $O(n)$ messages but remain performant for typical 
@@ -291,6 +291,7 @@ Our implementation is divided into two main layers: the Client API Layer and the
 
 \subsection{Client API Layer}
 The client layer provides several endpoints for interacting with the system. These include operations for creating, deleting, and checking the existence of paths, as well as retrieving and setting data. Additionally, clients can retrieve children of a path and synchronize their state with the server.
+
 
 \subsection{Consensus Layer}
 The consensus layer is built on the Raft protocol, replacing Zookeeper's Zab protocol. It operates with three distinct node states: Follower, Leader, and Candidate.
