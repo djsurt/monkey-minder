@@ -122,8 +122,9 @@ func (d *Delete) DoMessage(currentState *tree.Tree) (*mmpb.ServerResponse, []*ra
 }
 
 func (d *Delete) WatchTest(entry *raftpb.LogEntry) bool {
-	// TODO: implement checking logic properly
-	return true
+	samePath := entry.TargetPath == d.Path
+	isDelete := entry.Kind == raftpb.LogEntryType_DELETE
+	return samePath && isDelete
 }
 
 func (d *Delete) DoMessageWatch(currentState *tree.Tree) *mmpb.ServerResponse {
