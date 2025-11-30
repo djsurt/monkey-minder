@@ -255,8 +255,10 @@ func (m *SetData) DoMessage(currentState *tree.Tree) (
 }
 
 func (m *SetData) WatchTest(entry *raftpb.LogEntry) bool {
-	// TODO: implement checking logic properly
-	return true
+	samePath := m.Path == entry.TargetPath
+	sameValue := m.Data == entry.Value
+	isUpdate := entry.Kind == raftpb.LogEntryType_UPDATE
+	return samePath && sameValue && isUpdate
 }
 
 func (m *SetData) DoMessageWatch(currentState *tree.Tree) (
