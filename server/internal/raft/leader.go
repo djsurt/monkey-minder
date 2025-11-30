@@ -220,7 +220,7 @@ func (s *RaftServer) doLeader(ctx context.Context) {
 
 				// Grab the smallest matchIdx agreed upon by a majority of the
 				// cluster.
-				quorumCount := len(leaderPeers) / 2
+				quorumCount := ((len(leaderPeers) + 1) / 2) - 1
 				smallestMajorityMatchIdx := raftlog.Index(matchIndices[quorumCount])
 
 				if s.log.HasEntryAt(smallestMajorityMatchIdx) {
