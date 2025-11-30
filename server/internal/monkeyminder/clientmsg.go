@@ -87,8 +87,10 @@ func (c *Create) DoMessage(currentState *tree.Tree) (*mmpb.ServerResponse, []*ra
 }
 
 func (c *Create) WatchTest(entry *raftpb.LogEntry) bool {
-	// TODO: implement checking logic properly
-	return true
+	samePath := entry.TargetPath == c.Path
+	isCreate := entry.Kind == raftpb.LogEntryType_CREATE
+	sameValue := entry.Value == c.Data
+	return isCreate && samePath && sameValue
 }
 
 func (c *Create) DoMessageWatch(currentState *tree.Tree) *mmpb.ServerResponse {
