@@ -117,7 +117,7 @@ func (client *Client) doApi(request *mmpb.ClientRequest) {
 }
 
 // Creates a node at the given path with the provided data.
-func (client *Client) Create(path string, data string) <-chan string {
+func (client *Client) Create(path string, data string) <-chan bool {
 	request := &mmpb.ClientRequest{
 		Kind: mmpb.RequestType_CREATE,
 		Id:   client.nextId(),
@@ -127,8 +127,10 @@ func (client *Client) Create(path string, data string) <-chan string {
 	onComplete := setupCallbackChannel(
 		client,
 		request.Id,
-		func(resp *mmpb.ServerResponse) string { return *resp.Data },
-		make(chan string),
+		func(resp *mmpb.ServerResponse) bool {
+			return resp.Succeeded
+		},
+		make(chan bool),
 	)
 	go client.doApi(request)
 	return onComplete

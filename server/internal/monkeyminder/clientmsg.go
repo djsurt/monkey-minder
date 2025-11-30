@@ -91,10 +91,10 @@ func (c *Create) DoMessage(currentState *tree.Tree) (*mmpb.ServerResponse, []*ra
 func (c *Create) DoLeaderForward(leader *monkeyminder.Client) <-chan *mmpb.ServerResponse {
 	responseChan := make(chan *mmpb.ServerResponse)
 	go func() {
-		data := <-leader.Create(c.Path, c.Data)
+		success := <-leader.Create(c.Path, c.Data)
 		responseChan <- &mmpb.ServerResponse{
-			Id:   uint64(c.Id),
-			Data: &data,
+			Id:        uint64(c.Id),
+			Succeeded: success,
 		}
 	}()
 	return responseChan
