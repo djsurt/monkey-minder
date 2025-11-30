@@ -89,9 +89,10 @@ func (client *Client) handleResponses() {
 		if err != nil {
 			switch {
 			case errors.Is(err, io.EOF):
+				log.Printf("Client connection closed.\n")
 				return
 			default:
-				log.Printf("Error handling Client API response: %v\n", err)
+				return
 			}
 		}
 		if client.ctx.Err() != nil {
