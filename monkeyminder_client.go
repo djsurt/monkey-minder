@@ -128,7 +128,7 @@ func (client *Client) Create(path string, data string) <-chan string {
 
 // Deletes the node at the given path if the node's version is equal to the
 // provided version, or -1 if no version checking is required.
-func (client *Client) Delete(path string, version Version) <-chan struct{} {
+func (client *Client) Delete(path string, version Version) <-chan bool {
 	request := &mmpb.ClientRequest{
 		Kind:    mmpb.RequestType_DELETE,
 		Id:      client.nextId(),
@@ -138,8 +138,8 @@ func (client *Client) Delete(path string, version Version) <-chan struct{} {
 	onComplete := setupCallbackChannel(
 		client,
 		request.Id,
-		func(*mmpb.ServerResponse) struct{} { return struct{}{} },
-		make(chan struct{}),
+		func(res *mmpb.ServerResponse) bool { return res.Succeeded },
+		make(chan bool),
 	)
 	go client.doApi(request)
 	return onComplete
@@ -177,6 +177,28 @@ func (client *Client) GetData(path string, watchChan chan NodeData) <-chan NodeD
 	if request.WatchId != 0 {
 		setupCallbackChannel(client, request.WatchId, getData_convertResponse, watchChan)
 	}
+	go client.doApi(request)
+	return onComplete
+}
+
+// Check if the node at the given path exists.
+func (client *Client) Exists(path string, watchChan chan bool) <-chan bool {
+	request := &mmpb.ClientRequest{
+		Kind:    mmpb.RequestType_EXISTS,
+		Id:      client.nextId(),
+		WatchId: client.nextIdIf(watchChan != nil),
+		Path:    &path,
+	}
+
+	onComplete := setupCallbackChannel(client,
+		request.Id,
+		func(sr *mmpb.ServerResponse) bool { return sr.Succeeded },
+		make(chan bool))
+
+	if request.WatchId != 0 {
+		setupCallbackChannel(client, request.WatchId, func(sr *mmpb.ServerResponse) bool { return sr.Succeeded }, watchChan)
+	}
+
 	go client.doApi(request)
 	return onComplete
 }
