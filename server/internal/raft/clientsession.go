@@ -113,11 +113,15 @@ func (s *RaftServer) handleClientMessage(msg clientMsg) {
 				entry.Term = uint64(s.term)
 			}
 
-			// TODO: Make this a transaction so we can rollback upon failure
 			for _, entry := range newEntries {
 				err := s.log.Append(entry)
 				if err != nil {
-					log.Panicf("Transaction failed and rollback is not implemented: %v\n", err)
+					response.Succeeded = false
+					if session.isLive {
+						response.Data = nil
+						session.responseChan <- response
+					}
+					return
 				}
 			}
 			highestAwaitedIndex := s.log.IndexOfLast()
@@ -135,6 +139,7 @@ func (s *RaftServer) handleClientMessage(msg clientMsg) {
 			leaderClient := s.mmConns[s.leader]
 			go func() {
 				response := <-msg.msg.DoLeaderForward(leaderClient)
+				log.Printf("RECEIVED RESPONSE FROM LEADER: %v\n", response)
 				if session.isLive {
 					session.responseChan <- response
 				}
