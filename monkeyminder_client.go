@@ -157,8 +157,10 @@ func getData_convertResponse(resp *mmpb.ServerResponse) NodeData {
 			Version: Version(resp.Version),
 		}
 	} else {
-		// FIXME propagate this out as an err instead
-		panic("FAILED!")
+		return NodeData{
+			Data:    "Node doesn't exist!",
+			Version: -1,
+		}
 	}
 }
 
@@ -192,7 +194,7 @@ func (client *Client) SetData(path string, data string, version Version) <-chan 
 	onComplete := setupCallbackChannel(
 		client,
 		request.Id,
-		func(sr *mmpb.ServerResponse) bool { panic("TODO") },
+		func(sr *mmpb.ServerResponse) bool { return sr.Succeeded },
 		make(chan bool),
 	)
 	go client.doApi(request)
