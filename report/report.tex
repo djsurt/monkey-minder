@@ -352,16 +352,18 @@ invariant regardless of current role.
 \subsubsection{AppendEntries Path (Follower \& Leader, \S5.3)}
 Need to fill out
 
+
 \subsubsection{RequestVote Path (Follower \& Candidate, \S5.2, \S5.4)}
-\texttt{doCommonRV} enforces:
-\begin{enumerate}
-    \item \textbf{Term rule}: adopt higher term and abdicate to follower if needed.
-    \item \textbf{Vote once per term}: grant vote only if \texttt{votedFor} is null or matches \texttt{CandidateId}.
-    \item \textbf{Log up-to-dateness} (\S5.4): grant vote only if candidate’s log is at least as up-to-date as receiver’s log.
-    We compute this through \texttt{LastLog.AtLeastUpToDateAs}, which first compares terms, the indices.
-\end{enumerate}
-The function returns both the vote and whether a higher term was observed, so callers can reset
-\texttt{votedFor} appropriately.
+The \texttt{doCommonRV} routine implements the main Raft voting rules. When a 
+RequestVote RPC arrives, the server first checks the candidate's term and immediately
+adopts it. It reverts to the follower state if the candidate's term is higher. Then it
+enforces Raft's one vote per term requirement by granting a vote only when the server has
+not voted in the current term or when its prior vote was already vast for the same candidate. 
+Finally, it checks if the candidate's log is up to date as required by Raft.
+This comparison uses the \texttt{LastLog.AtLeastAsUpToDateAs} method, which first compares Log
+terms and uses the log index as the tiebreaker. Only candidates whose logs are at least up-to-date
+as the receiver's are eligble to receive a vote. The function returns both the vote decision and an
+indication of whether a higher term was ibserved, allowing the caller to reset \texttt{votedFor} when necessary.
 
 \subsubsection{Follower Role}
 \texttt{doFollower} maintains the election time and processes two classes of events:
