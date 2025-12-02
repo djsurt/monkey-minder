@@ -226,12 +226,61 @@ The replicated log maintains the following:
 (iv) the slice of entries, and
 (v) a commit index.
 
-Appending an entry involves applying the entry to the tail snapshot, storing it in the log, and updating any existing checkpoints.
-Retrival is supported using an index-based lookup like \texttt{GetEntryAt} and \texttt{GetEntryLatest}, both of which are used
-by Raft for log-matching during leader election and AppendEntries processing. The log also provides a compaction mechanism:
-\texttt{SquashFirstN} and \texttt{SquashUntil} merge older entries into the head snapshot once they are no longer needed, preventing
-unbounded growth.
+Appending an entry to the log involves two steps. First, the entry is applied to
+the \texttt{tailSnapshot}, producing an updated state that reflects the new
+operation. Second, the entry is appended to the in-memory list of log entries.
+This ensures that the tail snapshot always reflects the state obtained by
+applying all log entries in order, simplifying state-machine replication.
 
+The log supports multiple retrieval methods, including \texttt{GetEntryAt} and
+\texttt{GetEntryLatest}, which provide direct indexed access to entries or the
+most recently appended entry. These operations are crucial during leader
+election, where candidates must advertise their last log index and term, and
+during replication, where followers verify that their local logs agree with the
+leader’s prefix.
+
+To prevent unbounded growth, the log implements compaction operations.
+\texttt{SquashFirstN} applies the first \(n\) entries in the log to the
+\texttt{headSnapshot} and removes them from memory, effectively shortening the
+log without losing state. \texttt{SquashUntil} performs a similar compaction
+based on a predicate evaluated over log entries. These mechanisms mimic
+snapshotting in production Raft systems and allow long-running clusters to avoid
+excessive memory usage.
+
+Truncation is handled through the \texttt{TruncateAt} method, which removes log 
+entries at and beyond a specfied index after first rebuilding the \texttt{tailSnapshot}
+using the nearest snapshot at or below the index. Raft leaders use this function to repair
+logs on followers that have diverged from the leader's log due to incomplete replication or
+outdated state.
+
+\subsubsection{Application-Level Command Processing}
+
+Client operations are expressed as implementations of the \texttt{ClientMessage} interface. Each message type(
+\texttt{Create}, \texttt{Delete}, \texttt{SetData}, \texttt{Exists}, \texttt{GetData}, and \texttt{GetChildren}) 
+encapsulates the semantics of a client request. Messages specify whether they must run on the leader (\texttt{IsLeaderOnly}) and define how to produce new log
+entries through \texttt{DoMessage}. Read-only commands generate no log entries and operate directly on the snapshot of the tree maintained by the server. By contrast, write operations produce a list of \texttt{LogEntry} structures that
+the leader appends to the log and replicates across the cluster.
+
+Our design intentionally separates the applicaiton logic from Raft's consensus logic. Raft guarantees
+the order and durability of log entries, while the message handlers guarantee deterministic state transitions
+for the Tree data store.
+
+\subsubsection{Watch Manager}
+
+The system provides lightweight watch functionality similar to Zookeeper's. Each watch consists of a predicate
+tested against committed log entries. When a committed entry satisfies a watch predicate, the associated callback
+channel is fired and the watch is removed. Watches are checked during leader commit processing. This ensures that
+notifications reflect globally committed state.
+
+\subsubsection{Tree State Machine}
+The state machine that is replicated by Raft is a heirarchical \texttt{Tree} structure that closely
+models Zookeeper's znode abstraction. Each node in the tree has a name, associated data, a version number, and a set of children.
+Operations such as \texttt{Create}, \texttt{Update}, and \texttt{Delete} modify the tree deterministically.
+Because these operations are deterministic and their arguments are captured precisely in \texttt{LogEntry} values,
+every replica applying the same sequence of committed log entries converges to the same logical state.
+
+The \texttt{ApplyEntry} method maps log entries to concrete tree operations. This strict determinism is the foundation
+of correct state machine replication.
 % \begin{figure}[h]
 %     \centering
 %     \includegraphics[width=2.5in]{test-uml.mmd.pdf}
