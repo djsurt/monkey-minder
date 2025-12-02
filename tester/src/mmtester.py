@@ -11,7 +11,7 @@ import itertools
 import logging
 import tarfile
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, Awaitable, Coroutine, Generator, Mapping, NamedTuple
+from typing import TYPE_CHECKING, Any, Awaitable, Coroutine, Generator, Mapping, NamedTuple, Self
 from collections.abc import AsyncIterator
 import aiodocker
 from aiodocker.execs import Exec
@@ -270,7 +270,7 @@ class NodeContainer:
             yield nodes
         finally:
             for node in nodes:
-                await node.container.__stop()
+                await node.kill()
 
     async def _exec(self, *cmd: str, privileged: bool = False) -> Exec:
         execute: Exec = await self.container.exec(cmd=cmd, privileged=privileged)
@@ -329,8 +329,10 @@ class ClientApi:
         self._response_datas = dict()
         stub = MonkeyMinderServiceStub(channel)
         self._session = stub.Session()
-        asyncio.create_task(self._send_loop())
-        asyncio.create_task(self._recv_loop())
+        self._tasks = [
+            asyncio.create_task(self._send_loop()),
+            asyncio.create_task(self._recv_loop()),
+        ]
 
     async def _send_loop(self):
         while True:
@@ -341,16 +343,29 @@ class ClientApi:
 
     async def _recv_loop(self):
         while True:
-            msg = await self._session.read()
-            print(f'got {msg=}')
-            match msg:
-                case m if m == grpc.aio.EOF:
-                    break
-                case ServerResponse() as resp:
-                    if resp.id in self._response_events:
-                        self._response_datas[resp.id] = resp
-                        self._response_events[resp.id].set()
-                
+            try:
+                msg = await self._session.read()
+            except grpc.aio.AioRpcError as ex:
+                if ex.code() == grpc.StatusCode.UNAVAILABLE:
+                    continue
+                print(f'client died! with message {ex=}')
+                break
+            else:
+                print(f'got {msg=}')
+                match msg:
+                    case m if m == grpc.aio.EOF:
+                        break
+                    case ServerResponse() as resp:
+                        if resp.id in self._response_events:
+                            self._response_datas[resp.id] = resp
+                            self._response_events[resp.id].set()
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        for task in self._tasks:
+            _ = task.cancel()
 
     def _next_num(self) -> int:
         self._num += 1
@@ -410,6 +425,7 @@ async def start_client(server: NodeApi, /) -> AsyncIterator[ClientApi]:
     cfg = config_var.get()
     async with grpc.aio.insecure_channel(f'{server.container.host_ip}:{server.container.host_port}') as channel:
         try:
-            yield ClientApi(channel)
+            async with ClientApi(channel) as client:
+                yield client
         finally:
             pass

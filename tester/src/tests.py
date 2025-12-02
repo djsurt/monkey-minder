@@ -13,6 +13,7 @@ class TestAssignment3(unittest.IsolatedAsyncioTestCase):
             network_name='monkey-minder-test-network',
             network_subnet=IPv4Network('10.10.0.0/16'),
             use_docker_network=False,
+            graceful_stop_containers=False,
         ))
 
     async def asyncTearDown(self) -> None:
@@ -20,6 +21,7 @@ class TestAssignment3(unittest.IsolatedAsyncioTestCase):
 
     async def test_get_2nodes(self):
         async with start_nodes(3) as (n1, n2, n3), start_client(n1) as c1:
+            await asyncio.sleep(5.0)
             _ = await c1.create('/a', 'b')
 
 def main():
