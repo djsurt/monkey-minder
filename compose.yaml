@@ -15,15 +15,21 @@ services:
       context: .
       additional_contexts:
         dev: service:dev
-      # TODO(amgg): this should run the protobuf build, and specifically do it in a way that doesn't write to host disk (i.e. should switch to copying instead of mounting)
       dockerfile_inline: |
+        # syntax=docker/dockerfile:1.20
         FROM dev AS builder
         WORKDIR /build-in/
-        RUN --mount=type=bind,target=. go build -o /build-out/server ./server/
+        # copy just this in first & build, so docker will (hopefully?) not need to reinstall deps on source code changes
+        COPY --parents ./go.mod ./go.sum /build-in/
+        RUN go mod download
+        # now copy the actual source code in, do codegen, then build
+        COPY --parents --exclude=*.pb.go ./proto ./server ./Makefile ./monkeyminder_client.go /build-in/
+        RUN make protos-go
+        RUN go build -o /build-out/server ./server/
+        # copy just our final executable to a new container to minimize size
         FROM scratch
         COPY --from=builder /build-out/server /bin/server
         CMD ["/bin/server"]
-  # TODO(amgg): should really switch to a less janky solution for rebuild watching
   dev:
     profiles: [dev-all]
     build:
@@ -33,6 +39,10 @@ services:
     working_dir: /src
     command: tail -f /dev/null
     develop:
+      # slightly janky solution for local rebuild watching:        (but hey, it works.)
+      #  we copy the actual watched files to /dev/null in the container
+      #   (since afaict there's no way to have docker compose watch files with an 'exec' but no 'sync')
+      #  and then run make within the container but with the host's src directory mounted
       watch:
         - path: ./
           action: sync+exec
