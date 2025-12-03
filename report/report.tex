@@ -518,7 +518,28 @@ This shared handlign ensures both RPC types correctly implement Raft's term
 invariant regardless of current role.
 
 \subsubsection{AppendEntries Path (Follower \& Leader, \S5.3)}
-Need to fill out
+The \texttt{AppendEntries} RPC is implemented as a wrapper around the \texttt{doCommonAE} helper. The RPC handler
+forwards the request onto \texttt{aeRequestChan} and waits on \texttt{aeResponseChan}, so that all log and term
+changes are serialied inside the Raft state loop.
+
+Inside \texttt{doCommonAE}, the server first enforces Raft's term rules. If the incoming request carries a higher term,
+the node updates its \texttt{term}, clears \texttt{votedFor}, and records the sender as the current leader before creating 
+a response. If the request term is stale, the server immediately returns \texttt{Success=false}.
+
+Next the follower checks log consistency with the leader. It calculates the index of its last local entry and 
+compares it with the \texttt{prevLogIndex} thats provided by the leader. If the follower's log is shorter than this index,
+or if the term at \texttt{prevLogIndex} does not match \texttt{prevLogTerm}, the follower rejets the RPC with 
+\texttt{Success=false}, indicating that the leader must backup and retry from an earlier prefix.
+
+When the prefix check succeeds, the follower calls \texttt{reconcileLogs} to repair any divergent suffixes. This helper
+scans new entries and either: 
+(i) appends entries beyond the end of the local log, or
+(ii) truncates the local log at the first conflicting index and then appends all remaining entries from the leader.
+This realizes Raft's ``conflicting entries are overwritten'' rule while minimiing unnecessary truncation.
+
+Finally, the follower advances its commit point. It sets the commit index to \(\min(\texttt{leaderCommit}, \)) and 
+uses the \texttt{commitPoint} checkpoint object to apply any newly commmitted entries to the tree state machine and fire watches.
+This ensures that committed state is monotonic and identical across all replicas.
 
 
 \subsubsection{RequestVote Path (Follower \& Candidate, \S5.2, \S5.4)}
@@ -753,7 +774,7 @@ Log backfull converges without divergence.
 
 \subsection{Watches and Notifications}
 \subsubsection{Test 9: Watch Triggers on Immediate Children}
-
+AppendEntries Path (Follower \& Leader, \S5.3)
 \textbf{Setup:} Client registers a watch via \texttt{GetChildren("/p", watchChan)}.
 
 \textbf{Actions:}
