@@ -35,6 +35,8 @@ func errorIfError(t *testing.T, err error) {
 }
 
 func TestLog(t *testing.T) {
+	t.Parallel()
+
 	log := NewLog(make(simpleSnapshot), 0)
 	assertEq(t, log.IndexBeforeFirst(), Index(0))
 	assertEq(t, log.IndexAfterLast(), Index(1))
@@ -42,7 +44,7 @@ func TestLog(t *testing.T) {
 	check, err := log.NewCheckpointAt(log.IndexOfLast())
 	errorIfError(t, err)
 
-	log.Append(simpleEntry{"a", 1})
+	errorIfError(t, log.Append(simpleEntry{"a", 1}))
 	assertEq(t, (*log.Latest())["a"], 1)
 	assertEq(t, log.LenLogical(), 1)
 	assertEq(t, log.IndexBeforeFirst(), Index(0))
@@ -53,20 +55,20 @@ func TestLog(t *testing.T) {
 	assertEq(t, check.Index(), Index(1))
 	assertEq(t, (*check.Data())["a"], 1)
 
-	log.Append(simpleEntry{"a", 2})
+	errorIfError(t, log.Append(simpleEntry{"a", 2}))
 	assertEq(t, (*log.Latest())["a"], 2)
 	assertEq(t, log.LenLogical(), 2)
 	assertEq(t, log.IndexBeforeFirst(), Index(0))
 	assertEq(t, log.IndexAfterLast(), Index(3))
 
-	log.Append(simpleEntry{"b", 3})
+	errorIfError(t, log.Append(simpleEntry{"b", 3}))
 	assertEq(t, (*log.Latest())["a"], 2)
 	assertEq(t, (*log.Latest())["b"], 3)
 	assertEq(t, log.LenLogical(), 3)
 	assertEq(t, log.IndexBeforeFirst(), Index(0))
 	assertEq(t, log.IndexAfterLast(), Index(4))
 
-	log.SquashFirstN(1)
+	errorIfError(t, log.SquashFirstN(1))
 	assertEq(t, (*log.Latest())["a"], 2)
 	assertEq(t, log.LenLogical(), 3)
 	assertEq(t, log.LenActual(), 2)

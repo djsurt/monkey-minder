@@ -2,7 +2,7 @@ package log
 
 type Index uint64
 
-// an `Index` which is guranteed to be non-zero, or in other words, is guranteed
+// an `Index` which is guaranteed to be non-zero, or in other words, is guaranteed
 // to point to an actual log entry, rather than the spot before the first entry.
 type nonzeroIndex uint64
 
@@ -14,13 +14,13 @@ func (idx Index) promiseNonzero() nonzeroIndex {
 	return nonzeroIndex(idx)
 }
 
-// add a non-negative value to a known nonzero index, thus preserving gurantees.
+// add a non-negative value to a known nonzero index, thus preserving guarantees.
 func (nz nonzeroIndex) offsetBy(offset uint64) nonzeroIndex {
 	return nonzeroIndex(uint64(nz) + offset)
 }
 
 // get the (not necissarily non-zero) index immediately preceding this index. as
-// we are guranteed to be at least one, this can be guranteed to never overflow.
+// we are guaranteed to be at least one, this can be guaranteed to never overflow.
 func (nz nonzeroIndex) prior() Index {
 	return nz.unwrap() - 1
 }

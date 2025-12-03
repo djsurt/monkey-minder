@@ -122,9 +122,9 @@ func getNewElectionTimer() <-chan time.Time {
 	return time.After(dur)
 }
 
-type ServerClosed struct{}
+type ServerClosedError struct{}
 
-func (e *ServerClosed) Error() string {
+func (e *ServerClosedError) Error() string {
 	return "Server exited normally"
 }
 
@@ -135,7 +135,7 @@ func (s *RaftServer) Serve() error {
 	// Try to create the TCP socket.
 	listener, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", s.Port))
 	if err != nil {
-		return fmt.Errorf("Error creating TCP socket: %v", err)
+		return fmt.Errorf("Error creating TCP socket: %w", err)
 	}
 	defer listener.Close()
 
@@ -162,7 +162,7 @@ func (s *RaftServer) Serve() error {
 		return err
 	}
 
-	return &ServerClosed{}
+	return &ServerClosedError{}
 }
 
 // Connect to all peers for RPCs

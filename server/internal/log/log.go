@@ -7,7 +7,7 @@ import (
 )
 
 type Snapshot[Entry any, Self any] interface {
-	ApplyEntry(Entry) error
+	ApplyEntry(entry Entry) error
 	Clone() Self
 }
 
@@ -183,7 +183,7 @@ func (log *Log[E, S]) updateCheckpoints() error {
 }
 
 func (log *Log[E, S]) NewCheckpointAt(index Index) (*Checkpoint[E, S], error) {
-	if !(log.HasEntryAt(index) || index == log.IndexBeforeFirst()) {
+	if !log.HasEntryAt(index) && index != log.IndexBeforeFirst() {
 		return nil, errors.New("provided index must be the index of a valid element, or the index immediately before the first element, or the index immediately after the last element")
 	}
 
@@ -237,11 +237,11 @@ func (check Checkpoint[E, S]) AdvanceBy(amount uint64) error {
 
 func (check Checkpoint[E, S]) AdvanceTo(index Index) error {
 	ckpt := check.data()
-	if !(check.log.HasEntryAt(index) || index == check.log.IndexBeforeFirst()) {
-		return fmt.Errorf("cannot advance checkpoint by requested amount, that would send us past the end of the log!")
+	if !check.log.HasEntryAt(index) && index != check.log.IndexBeforeFirst() {
+		return fmt.Errorf("cannot advance checkpoint by requested amount, that would send us past the end of the log")
 	}
 	if index < ckpt.index {
-		return fmt.Errorf("cannot advance checkpoint by negative amount! requested advance to index %v but we were already at index %v.", index, ckpt.index)
+		return fmt.Errorf("cannot advance checkpoint by negative amount! requested advance to index %v but we were already at index %v", index, ckpt.index)
 	}
 	ckpt.index = index
 	return ckpt.updateSnapshot(check.log)
