@@ -216,6 +216,97 @@ loop manages per-follower replication pointers (\texttt{nextIndex} and \texttt{m
 heartbeats and log entires, and responds to vote and AppendEntries RPCs from other nodes, stepping down when observing a higher
 term.
 
+TODO: Need to finish this section with the diagrams
+\subsection{Architecture and Component Interaction}
+
+Our system follows a replicated state-machine architecture built around a
+Raft cluster. The clients interact with what looks like a single
+centralized data store service, while internally the service is replicated across
+multiple Raft servers for fault tolerance and consistency.
+
+Each server process embeds three main subsystems: a client-facing RPC layer, the
+Raft consensus module, and the replicated data store tree. The RPC layer terminates
+gRPC/Protocol Buffer requests from clients and converts them into typed
+\texttt{ClientMessage} objects. These messages are then processed by the local
+Raft instance. For write operations (such as \texttt{Create}, \texttt{SetData},
+and \texttt{Delete}), the server’s Raft leader appends a corresponding
+\texttt{LogEntry} to its log, replicates the entry to followers via
+\texttt{AppendEntries} RPCs, and, once a majority have acknowledged the entry,
+commits it and applies it to the tree state machine. Read-only operations
+(\texttt{Exists}, \texttt{GetData}, \texttt{GetChildren}) can be served by any
+node using its committed snapshot, while leader-only operations are forwarded
+internally to the current leader.
+
+From the client’s point of view, all of this complexity is hidden (transparency). Clients
+connect to any server, issue operations against a hierarchical namespace, and
+receive responses that reflect a linearizable history of writes and monotonic
+reads. Leader election, log replication, commit-index management, and watch
+delivery all occur behind the scenes within the Raft layer.
+
+\subsubsection{Use-Case View}
+
+Figure~\ref{fig:usecase} presents a use-case style view of the system from the
+client’s perspective. The primary actor is a generic client application that
+interacts with the our data service. The main use cases include
+creating znodes, updating data, reading data, listing children, deleting znodes,
+and registering watches for changes. An operator or administrator actor may
+perform management-oriented operations such as enumerating znodes or cleaning up
+application state.
+
+% \mmdfigure{usecase-overview}{System use-case overview.\label{fig:usecase}}
+
+This diagram emphasizes that clients treat the service as a single logical
+coordination point, even though it is backed by multiple Raft replicas.
+
+\subsubsection{Deployment and Component View}
+
+Figure~\ref{fig:deployment} shows a combined deployment and component view of
+the system. On the left, client processes (e.g., our Go client tool) run on
+arbitrary hosts and open gRPC connections to any server in the Raft cluster. On
+the right, the cluster consists of three to five \texttt{RaftServer} processes,
+each hosting:
+
+\begin{itemize}
+  \item a \emph{ClientSession} component, which terminates client RPCs and
+        translates them into \texttt{ClientMessage} instances,
+  \item the \emph{Raft core}, which implements leader election, term tracking,
+        log replication, and commit-index advancement, and
+  \item the \emph{Tree state machine}, which applies committed log entries to
+        maintain the hierarchical znode namespace.
+\end{itemize}
+
+Servers communicate with each other exclusively via Raft RPCs
+(\texttt{RequestVote} and \texttt{AppendEntries}) over gRPC channels. The
+underlying network is assumed to provide reliable message delivery with possible
+delays, reordering, and crash-stop failures.
+
+% \mmdfigure{deployment}{Cluster deployment and component diagram.\label{fig:deployment}}
+
+This diagram highlights both the physical layout (distributed servers and
+clients) and the logical decomposition of each server process into components.
+
+\subsubsection{Dynamic Interaction and Sequence Views}
+
+Figures~\ref{fig:raft-election} and~\ref{fig:raft-rpc-flow} focus on the dynamic
+behavior of the Raft layer. Figure~\ref{fig:raft-election} is a state-oriented
+view of a single server’s role transitions among \texttt{FOLLOWER},
+\texttt{CANDIDATE}, and \texttt{LEADER}. It shows how randomized election
+timeouts, vote requests, and heartbeats cause nodes to move between states.
+
+Figure~\ref{fig:raft-rpc-flow} complements this with a sequence-style view of
+message exchanges during a leader election. A follower’s election timeout
+expires, it begins sending \texttt{RequestVote} RPCs, and, once it receives a majority of votes, it transitions
+to the leader state and starts sending \texttt{AppendEntries} heartbeats. These diagrams together illustrate the
+interaction between components and the temporal ordering of messages that
+establish a single, authoritative leader in each term.
+
+Finally, the write path from client to replicated tree follows a similar sequence: the client sends a request to the leader; the leader appends the
+corresponding log entry, replicates it to followers using \texttt{AppendEntries}, waits for a majority of successful 
+responses, advances the commit index, applies
+the entry to the local tree, triggers any relevant watches, and then replies to the client. This sequence ensures that externally visible
+state always reflectscommitted, majority-replicated updates.
+
+
 \subsubsection{Log and Snapshot Module}
 The replicated log is implemented as a generic, snapshot-aware data structure with an entry and a snapshot type.
 This enables easy integration with our heirarchical tree data store.
@@ -472,8 +563,8 @@ inbound AppendEntries with a higher term or RequestVote with a higher term cause
 to \texttt{FOLLOWER}. A short debug timer bounds the demo session for observability.
 
 % --- INSERT DIAGRAMS HERE ---
-\mmdfigure{raft-election}{Raft Leader Election State Machine}
-\mmdfigure{raft-rpc-flow}{Raft RPC Interaction During Election}
+\mmdfigure{raft-election}{Raft Leader Election State Machine\label{fig:raft-election}}
+\mmdfigure{raft-rpc-flow}{Raft RPC Interaction During Election\label{fig:raft-rpc-flow}}
 % --- END INSERT ---
 
 \subsubsection{Outbound RPCs and Parallelism}
