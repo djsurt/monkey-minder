@@ -4,13 +4,14 @@ import asyncio
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
+from grpc import ChannelConnectivity
 import io
 from ipaddress import IPv4Address, IPv4Network
 import itertools
 import logging
 import tarfile
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, Awaitable, Coroutine, Generator, Mapping, NamedTuple
+from typing import TYPE_CHECKING, Any, Awaitable, Coroutine, Generator, Mapping, NamedTuple, Self, cast
 from collections.abc import AsyncIterator
 import aiodocker
 from aiodocker.execs import Exec
@@ -48,14 +49,15 @@ class Config:
     created containers' mapped ports will be assigned starting from this number and counting up
     (e.g. for a value of 123, the first container created will map to 123, the second to 124, etc.)
     """
-    localhost: str = 'localhost'
+    host_ip: IPv4Address = IPv4Address('127.0.0.1')
     graceful_stop_containers: bool = False
     """True = stop containers with stop, False = stop containers with kill"""
     alivetest_retry_delay: float = 0.1
     """how many seconds to wait between pings while waiting for a container to start"""
+    use_docker_network: bool = True
 
     def _str_for_container_compare(self) -> str:
-        return f'image:{self.network_name!r} network:{self.network_name!r} subnet:{self.network_subnet} skip {self.network_subnet_skipfirst} base port:{self.base_host_port} localhost:{self.localhost}'
+        return f'image:{self.network_name!r} network:{self.network_name!r} subnet:{self.network_subnet} skip {self.network_subnet_skipfirst} base port:{self.base_host_port} host ip:{self.host_ip} use docker network:{self.use_docker_network}'
 
 
 CONTAINER_LABEL_CLIENTNUM = 'asg3tester.clientnum'
@@ -73,12 +75,12 @@ async def setup(config: Config | None = None) -> None:
     if config is None:
         config = Config()
 
-    config_var.set(config)
-    http_session_var.set(aiohttp.ClientSession())
-    docker_client_var.set(docker_client := aiodocker.Docker())
-    kvs_image_var.set(kvs_image := await docker_client.images.inspect(config.image_name))
-    kvs_network_var.set(kvs_network := await docker_client.networks.get(config.network_name))
-    nodecontainer_cache_var.set(dict())
+    _ = config_var.set(config)
+    _ = http_session_var.set(aiohttp.ClientSession())
+    _ = docker_client_var.set(docker_client := aiodocker.Docker())
+    _ = kvs_image_var.set(kvs_image := await docker_client.images.inspect(config.image_name))
+    _ = kvs_network_var.set(kvs_network := await docker_client.networks.get(config.network_name))
+    _ = nodecontainer_cache_var.set(dict())
 
     for container in await docker_client.containers.list(
         all=True,
@@ -119,11 +121,11 @@ async def cleanup() -> None:
 class NodeContainer:
     _num: int
     mm_id: int
+    host_ip: IPv4Address
     host_port: int
     subnet_ip: IPv4Address
     subnet_port: int
     container: 'DockerContainer'
-    base_url: URL
 
     @property
     def address(self) -> str:
@@ -135,11 +137,15 @@ class NodeContainer:
         node = NodeContainer()
         node._num = num
         node.mm_id = num + 1
+        node.host_ip = config.host_ip
         node.host_port = config.base_host_port + num
-        node.subnet_ip = config.network_subnet[num + config.network_subnet_skipfirst]
         # node.subnet_port = 9000 + node.mm_id
-        node.subnet_port = node.host_port
-        node.base_url = URL.build(scheme='http', host=config.localhost, port=node.host_port)
+        if config.use_docker_network:
+            node.subnet_ip = config.network_subnet[num + config.network_subnet_skipfirst]
+            node.subnet_port = 1234
+        else:
+            node.subnet_ip = node.host_ip
+            node.subnet_port = node.host_port
         if container is not None:
             node.container = container
         else:
@@ -152,16 +158,28 @@ class NodeContainer:
         kvs_network = kvs_network_var.get()
         config = config_var.get()
         container: 'DockerContainer' = await docker_client.containers.create(
-            # name=f'asg3tester-{self._num}',
+            name=f'mm-test-node-{self._num}',
             config={
                 'Cmd': ['/bin/server', '--id', f'{self.mm_id}'],
-                'Env': [f'MM_ID={self.mm_id}'],
+                'Env': [
+                    'GRPC_GO_LOG_VERBOSITY_LEVEL=99',
+                    'GRPC_GO_LOG_SEVERITY_LEVEL=info',
+                ],
                 'Image': kvs_image['Id'],
                 'ExposedPorts': { f'{self.subnet_port}': {} },
-                'AttachStdout': False, 'AttachStderr': False,
+                'AttachStdout': True, 'AttachStderr': True,
                 'HostConfig': {
-                    'NetworkMode': config.network_name,
-                    'PortBindings': { f'{self.subnet_port}/tcp': [ { 'HostPort': f'{self.host_port}' } ] },
+                    'NetworkMode': config.network_name if config.use_docker_network else 'host',
+                    'PublishAllPorts': False,
+                    'PortBindings': {
+                        f'{self.subnet_port}/{protocol}': [
+                            {
+                                'HostIp': f'{self.host_ip}',
+                                'HostPort': f'{self.host_port}',
+                            },
+                        ]
+                        for protocol in ['tcp', 'udp']
+                    } if config.use_docker_network else {},
                 },
                 'Labels': {
                     CONTAINER_LABEL_CLIENTNUM: f'{self._num}',
@@ -169,13 +187,16 @@ class NodeContainer:
                 },
             }
         )
-        container.get_archive
-        await kvs_network.connect(config={
-            'Container': container.id,
-            'EndpointConfig': {
-                'IPAddress': f'{self.subnet_ip}',
-            },
-        })
+        # container.get_archive
+        # await kvs_network.connect(config={
+        #     'Container': container.id,
+        #     'EndpointConfig': {
+        #         'IPAddress': f'{self.subnet_ip}',
+        #         # 'IPAMConfig': {
+        #         #     'IPv4Address': f'{self.subnet_ip}',
+        #         # },
+        #     },
+        # })
         return container
 
     @classmethod
@@ -199,27 +220,23 @@ class NodeContainer:
         await self.__wait_for_start()
 
     async def __wait_for_start(self) -> None:
-        await asyncio.sleep(0.25)
-        return
         retry_delay = config_var.get().alivetest_retry_delay
-        http_session = http_session_var.get()
-        await self.container.start()
         num_tries = 0
         while True:
             try:
-                async with http_session.get(self.base_url/'asg3tester'/'alivetest') as resp:
-                    try:
-                        body = await resp.json(content_type=None)
-                    except ValueError:
-                        pass
-                    else:
-                        match body:
-                            case {'alive': True}:
-                                if num_tries > 0:
-                                    logger.debug(f'container started after {num_tries} failed checks')
+                async with grpc.aio.insecure_channel(f'{self.host_ip}:{self.host_port}') as channel:
+                    while True:
+                        match channel.get_state(try_to_connect=True):
+                            case grpc.ChannelConnectivity.READY:
                                 return
-            except (aiohttp.ClientConnectionError):
-                pass
+                            case grpc.ChannelConnectivity.TRANSIENT_FAILURE | grpc.ChannelConnectivity.SHUTDOWN:
+                                break
+                            case grpc.ChannelConnectivity.CONNECTING | grpc.ChannelConnectivity.IDLE:
+                                pass
+                        await asyncio.sleep(retry_delay)
+                        num_tries += 1
+            except Exception as ex:
+                print(f'otherwise-unhandled error ignored in wait-for-start loop: {ex}')
             await asyncio.sleep(retry_delay)
             num_tries += 1
 
@@ -236,7 +253,7 @@ class NodeContainer:
 
     @classmethod
     @asynccontextmanager
-    async def start_group_of_n(cls, n_nodes: int, start: bool) -> AsyncIterator[list['NodeApi']]:
+    async def start_group_of_n(cls, n_nodes: int, start: bool) -> AsyncIterator['NodeClusterApi']:
         nodes = list[NodeApi]()
 
         try:
@@ -250,10 +267,10 @@ class NodeContainer:
             if start:
                 for node in nodes:
                     await node.container._start()
-            yield nodes
+            yield NodeClusterApi(nodes)
         finally:
             for node in nodes:
-                await node.container.__stop()
+                await node.kill()
 
     async def _exec(self, *cmd: str, privileged: bool = False) -> Exec:
         execute: Exec = await self.container.exec(cmd=cmd, privileged=privileged)
@@ -265,11 +282,6 @@ class NodeContainer:
 
 class NodeApi:
     container: NodeContainer
-    _endpoint_view: URL
-    _endpoint_data_all: URL
-
-    def _endpoint_data_single(self, key: str) -> URL:
-        return self.container.base_url/'kvs'/'data'/key
 
     @property
     def address(self) -> str:
@@ -277,11 +289,6 @@ class NodeApi:
 
     def __init__(self, container: NodeContainer) -> None:
         self.container = container
-        self._endpoint_view = self.container.base_url/'kvs'/'admin'/'view'
-        self._endpoint_data_all = self.container.base_url/'kvs'/'data'
-
-    def _request(self, method: str, url: URL, *, json: Any | None = None) -> 'aiohttp.client._RequestContextManager':
-        return http_session_var.get().request(url=url, method=method, json=json)
 
     async def kill(self) -> None:
         await self.container._stop()
@@ -304,30 +311,114 @@ class NodeApi:
         await other._iptables_exec(self, '--delete', 'INPUT')
         await other._iptables_exec(self, '--delete', 'OUTPUT')
 
+    async def _get_leaderinfo(self):
+        async with start_client(self) as client:
+            return await client._get_leaderinfo()
+
+    async def is_leader(self) -> bool:
+        async with start_client(self) as client:
+            return await client.is_leader()
+
+class NodeClusterApi:
+    nodes: list[NodeApi]
+
+    def __init__(self, nodes: list[NodeApi]):
+        self.nodes = nodes
+
+    # make the cluster iterable over its nodes,
+    #  this makes e.g.
+    #    a, b, c = cluster
+    #  work.
+    def __iter__(self):
+        return iter(self.nodes)
+
+    async def wait_for_election(self) -> tuple[NodeApi, list[NodeApi]]:
+        """
+        wait for an election to have occurred. returns the elected leader.
+        """
+        config = config_var.get()
+        while True:
+            # poll all nodes and only listen to the first one to respond.
+            # this way we'll still get a response if a given node was killed
+            responded, pending = await asyncio.wait(
+                [asyncio.create_task(n._get_leaderinfo()) for n in self.nodes],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            info = next(iter(responded)).result()
+            for task in pending:
+                task.cancel()
+            if info.leader_id == 0:
+                await asyncio.sleep(config.alivetest_retry_delay)
+            else:
+                leader = None
+                followers = list[NodeApi]()
+                for n in self.nodes:
+                    if n.container.mm_id == info.leader_id:
+                        leader = n
+                    else:
+                        followers.append(n)
+                assert leader is not None
+                return leader, followers
+
 class _ClientGetDataResponse(NamedTuple):
     data: str
     version: int
+
+class _ClientLeaderInfoResponse(NamedTuple):
+    leader_id: int
+    is_leader: bool
 
 class ClientApi:
     _num: int
     _outgoing: asyncio.Queue[ClientRequest]
     _response_events: dict[int, asyncio.Event]
     _response_datas: dict[int, ServerResponse]
+    _session: 'grpc.aio.StreamStreamCall[ClientRequest, ServerResponse]'
 
-    def __init__(self, channel: grpc.Channel, /) -> None:
+    def __init__(self, channel: grpc.aio.Channel, /) -> None:
         self._num = 0
         self._outgoing = asyncio.Queue[ClientRequest]()
         self._response_events = dict()
         self._response_datas = dict()
         stub = MonkeyMinderServiceStub(channel)
-        stub.Session(self._send_msgs())
+        self._session = stub.Session()
+        self._tasks = [
+            asyncio.create_task(self._send_loop()),
+            asyncio.create_task(self._recv_loop()),
+        ]
 
-    async def _send_msgs(self) -> AsyncIterator[ClientRequest]:
+    async def _send_loop(self):
         while True:
             msg = await self._outgoing.get()
-            print(f'outgoing {msg=}')
-            yield msg
+            # print(f'outgoing {msg=}')
+            await self._session.write(msg)
             self._outgoing.task_done()
+
+    async def _recv_loop(self):
+        while True:
+            try:
+                msg = await self._session.read()
+            except grpc.aio.AioRpcError as ex:
+                if ex.code() == grpc.StatusCode.UNAVAILABLE:
+                    continue
+                print(f'client died! with message {ex=}')
+                break
+            else:
+                # print(f'got {msg=}')
+                match msg:
+                    case m if m == grpc.aio.EOF:
+                        break
+                    case ServerResponse() as resp:
+                        if resp.id in self._response_events:
+                            self._response_datas[resp.id] = resp
+                            self._response_events[resp.id].set()
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        for task in self._tasks:
+            _ = task.cancel()
 
     def _next_num(self) -> int:
         self._num += 1
@@ -359,11 +450,19 @@ class ClientApi:
     async def get_children(self, path: str) -> list[str]:
         return list((await self._api(ClientRequest(kind=protos.GETCHILDREN, id=self._next_num(), path=path))).children)
 
-def start_nodes(n: int, /, *, start=True) -> AbstractAsyncContextManager[list[NodeApi]]:
+    async def _get_leaderinfo(self) -> _ClientLeaderInfoResponse:
+        resp = await self._api(ClientRequest(kind=protos.INTERNAL_LEADERCHECK, id=self._next_num()))
+        return _ClientLeaderInfoResponse(resp.version, resp.internal_isleader)
+
+    async def is_leader(self) -> bool:
+        return (await self._get_leaderinfo())[1]
+
+def start_nodes(n: int, /, *, start=True) -> AbstractAsyncContextManager[NodeClusterApi]:
     return NodeContainer.start_group_of_n(n, start)
 
 def _setup_cluster_config(nodes: list[NodeApi]) -> bytes:
     cluster_config_text = '\n'.join([
+        # f"{n.container.mm_id} {n.container.name}:{n.container.subnet_port}"
         f"{n.container.mm_id} {n.container.subnet_ip}:{n.container.subnet_port}"
         for n in nodes
     ]) + "\n"
@@ -384,8 +483,9 @@ def _setup_cluster_config(nodes: list[NodeApi]) -> bytes:
 @asynccontextmanager
 async def start_client(server: NodeApi, /) -> AsyncIterator[ClientApi]:
     cfg = config_var.get()
-    with grpc.insecure_channel(f'{cfg.localhost}:{server.container.host_port}') as channel:
+    async with grpc.aio.insecure_channel(f'{server.container.host_ip}:{server.container.host_port}') as channel:
         try:
-            yield ClientApi(channel)
+            async with ClientApi(channel) as client:
+                yield client
         finally:
             pass

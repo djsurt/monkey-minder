@@ -93,9 +93,18 @@ clientLoop:
 			break clientLoop
 		case request := <-requestChan:
 			log.Printf("Received request: %v\n", request)
-			s.clientMessagesIncoming <- clientMsg{
-				sessionId: sess.uid,
-				msg:       brokerMessage(request),
+			if request.Kind == mmpb.RequestType_INTERNAL_LEADERCHECK {
+				responseChan <- &mmpb.ServerResponse{
+					Id:               request.Id,
+					Succeeded:        true,
+					InternalIsleader: s.leader == s.Id,
+					Version:          uint64(s.leader),
+				}
+			} else {
+				s.clientMessagesIncoming <- clientMsg{
+					sessionId: sess.uid,
+					msg:       brokerMessage(request),
+				}
 			}
 		}
 	}
@@ -104,6 +113,7 @@ clientLoop:
 }
 
 func (s *RaftServer) handleClientMessage(msg clientMsg) {
+	session := s.clientSessions[msg.sessionId]
 	if msg.msg.IsLeaderOnly() {
 		if s.state == LEADER {
 			response, newEntries := msg.msg.DoMessage(*s.log.Latest())
@@ -112,11 +122,15 @@ func (s *RaftServer) handleClientMessage(msg clientMsg) {
 				entry.Term = uint64(s.term)
 			}
 
-			// TODO: Make this a transaction so we can rollback upon failure
 			for _, entry := range newEntries {
 				err := s.log.Append(entry)
 				if err != nil {
-					log.Panicf("Transaction failed and rollback is not implemented: %v\n", err)
+					response.Succeeded = false
+					if session.isLive {
+						response.Data = nil
+						session.responseChan <- response
+					}
+					return
 				}
 			}
 			highestAwaitedIndex := s.log.IndexOfLast()
@@ -125,15 +139,21 @@ func (s *RaftServer) handleClientMessage(msg clientMsg) {
 			})
 			go func() {
 				<-consensusDone
-				session := s.clientSessions[msg.sessionId]
 				if session.isLive {
 					session.responseChan <- response
 				}
 				s.clientLeaderMessageDone <- struct{}{}
 			}()
 		} else {
-			// TODO
-			panic("Leader forwarding not implemented!")
+			leaderClient := s.mmConns[s.leader]
+			go func() {
+				response := <-msg.msg.DoLeaderForward(leaderClient)
+				log.Printf("RECEIVED RESPONSE FROM LEADER: %v\n", response)
+				if session.isLive {
+					session.responseChan <- response
+				}
+				s.clientLeaderMessageDone <- struct{}{}
+			}()
 		}
 	} else {
 		currentState := *s.log.Latest()
@@ -142,7 +162,6 @@ func (s *RaftServer) handleClientMessage(msg clientMsg) {
 		if len(newEntries) > 0 {
 			panic("non-LeaderOnly messages must not attempt to append log entries")
 		}
-		session := s.clientSessions[msg.sessionId]
 		if session.isLive {
 			session.responseChan <- response
 		}

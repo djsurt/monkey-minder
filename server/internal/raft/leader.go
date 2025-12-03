@@ -15,9 +15,6 @@ import (
 func (s *RaftServer) doLeader(ctx context.Context) {
 	// TODO: "If command received from client: append entry to local log, respond after entry applied to state machine (§5.3)"
 
-	// FIXME remove me
-	testingAppendsTimer := time.NewTicker(5 * time.Second)
-
 	rpcCtx, rpcCancel := context.WithCancel(ctx)
 	defer rpcCancel()
 
@@ -92,23 +89,6 @@ func (s *RaftServer) doLeader(ctx context.Context) {
 	// "Upon election: send initial empty AppendEntries RPCs (heartbeat) to each server; repeat during idle periods to prevent election timeouts (§5.2)"
 	for _, lp := range leaderPeers {
 		lp.markShouldAE()
-	}
-
-	{
-		log.Printf("A")
-		_, err := (*s.log.Latest()).Get("/foo")
-		if err != nil {
-			err := s.log.Append(&raftpb.LogEntry{
-				Kind:       raftpb.LogEntryType_CREATE,
-				Term:       uint64(s.term),
-				TargetPath: "/foo",
-				Value:      "<initial value>",
-			})
-			if err != nil {
-				panic(err)
-			}
-		}
-		log.Printf("B")
 	}
 
 	for {
@@ -220,7 +200,7 @@ func (s *RaftServer) doLeader(ctx context.Context) {
 
 				// Grab the smallest matchIdx agreed upon by a majority of the
 				// cluster.
-				quorumCount := len(leaderPeers) / 2
+				quorumCount := ((len(leaderPeers) + 1) / 2) - 1
 				smallestMajorityMatchIdx := raftlog.Index(matchIndices[quorumCount])
 
 				if s.log.HasEntryAt(smallestMajorityMatchIdx) {
@@ -255,16 +235,6 @@ func (s *RaftServer) doLeader(ctx context.Context) {
 				// FIXME this is not distinguishing causes of failure, see above vs. what we have here
 				lp.nextIndex--
 				lp.markShouldAE()
-			}
-		case <-testingAppendsTimer.C:
-			err := s.log.Append(&raftpb.LogEntry{
-				Kind:       raftpb.LogEntryType_UPDATE,
-				Term:       uint64(s.term),
-				TargetPath: "/foo",
-				Value:      time.Now().Format(time.DateTime),
-			})
-			if err != nil {
-				panic(err)
 			}
 		case msg := <-s.clientMessages:
 			log.Printf("going into msg handle. commit index = %v", s.commitPoint.Index())

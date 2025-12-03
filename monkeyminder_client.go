@@ -2,6 +2,9 @@ package monkeyminder
 
 import (
 	"context"
+	"errors"
+	"io"
+	"log"
 
 	mmpb "github.com/djsurt/monkey-minder/proto"
 	"google.golang.org/grpc"
@@ -84,8 +87,13 @@ func (client *Client) handleResponses() {
 	for {
 		resp, err := client.session.Recv()
 		if err != nil {
-			// TODO handle this properly
-			panic(err)
+			switch {
+			case errors.Is(err, io.EOF):
+				log.Printf("Client connection closed.\n")
+				return
+			default:
+				return
+			}
 		}
 		if client.ctx.Err() != nil {
 			return
@@ -109,7 +117,7 @@ func (client *Client) doApi(request *mmpb.ClientRequest) {
 }
 
 // Creates a node at the given path with the provided data.
-func (client *Client) Create(path string, data string) <-chan string {
+func (client *Client) Create(path string, data string) <-chan bool {
 	request := &mmpb.ClientRequest{
 		Kind: mmpb.RequestType_CREATE,
 		Id:   client.nextId(),
@@ -119,8 +127,10 @@ func (client *Client) Create(path string, data string) <-chan string {
 	onComplete := setupCallbackChannel(
 		client,
 		request.Id,
-		func(resp *mmpb.ServerResponse) string { return *resp.Data },
-		make(chan string),
+		func(resp *mmpb.ServerResponse) bool {
+			return resp.Succeeded
+		},
+		make(chan bool),
 	)
 	go client.doApi(request)
 	return onComplete
@@ -128,7 +138,7 @@ func (client *Client) Create(path string, data string) <-chan string {
 
 // Deletes the node at the given path if the node's version is equal to the
 // provided version, or -1 if no version checking is required.
-func (client *Client) Delete(path string, version Version) <-chan struct{} {
+func (client *Client) Delete(path string, version Version) <-chan bool {
 	request := &mmpb.ClientRequest{
 		Kind:    mmpb.RequestType_DELETE,
 		Id:      client.nextId(),
@@ -138,8 +148,8 @@ func (client *Client) Delete(path string, version Version) <-chan struct{} {
 	onComplete := setupCallbackChannel(
 		client,
 		request.Id,
-		func(*mmpb.ServerResponse) struct{} { return struct{}{} },
-		make(chan struct{}),
+		func(res *mmpb.ServerResponse) bool { return res.Succeeded },
+		make(chan bool),
 	)
 	go client.doApi(request)
 	return onComplete
@@ -157,8 +167,10 @@ func getData_convertResponse(resp *mmpb.ServerResponse) NodeData {
 			Version: Version(resp.Version),
 		}
 	} else {
-		// FIXME propagate this out as an err instead
-		panic("FAILED!")
+		return NodeData{
+			Data:    "Node doesn't exist!",
+			Version: -1,
+		}
 	}
 }
 
@@ -179,6 +191,28 @@ func (client *Client) GetData(path string, watchChan chan NodeData) <-chan NodeD
 	return onComplete
 }
 
+// Check if the node at the given path exists.
+func (client *Client) Exists(path string, watchChan chan bool) <-chan bool {
+	request := &mmpb.ClientRequest{
+		Kind:    mmpb.RequestType_EXISTS,
+		Id:      client.nextId(),
+		WatchId: client.nextIdIf(watchChan != nil),
+		Path:    &path,
+	}
+
+	onComplete := setupCallbackChannel(client,
+		request.Id,
+		func(sr *mmpb.ServerResponse) bool { return sr.Succeeded },
+		make(chan bool))
+
+	if request.WatchId != 0 {
+		setupCallbackChannel(client, request.WatchId, func(sr *mmpb.ServerResponse) bool { return sr.Succeeded }, watchChan)
+	}
+
+	go client.doApi(request)
+	return onComplete
+}
+
 // Sets the node at the given path to data if the node's version is equal to
 // the provided version, or -1 if no version checking is required.
 func (client *Client) SetData(path string, data string, version Version) <-chan bool {
@@ -192,7 +226,7 @@ func (client *Client) SetData(path string, data string, version Version) <-chan 
 	onComplete := setupCallbackChannel(
 		client,
 		request.Id,
-		func(sr *mmpb.ServerResponse) bool { panic("TODO") },
+		func(sr *mmpb.ServerResponse) bool { return sr.Succeeded },
 		make(chan bool),
 	)
 	go client.doApi(request)

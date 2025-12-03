@@ -3,6 +3,7 @@ package monkeyminder
 import (
 	"strings"
 
+	monkeyminder "github.com/djsurt/monkey-minder"
 	mmpb "github.com/djsurt/monkey-minder/proto"
 	"github.com/djsurt/monkey-minder/server/internal/tree"
 	raftpb "github.com/djsurt/monkey-minder/server/proto/raft"
@@ -35,6 +36,7 @@ type ClientMessage interface {
 	DoMessageWatch(currentState *tree.Tree) (response *mmpb.ServerResponse)
 
 	GetId() MessageId
+	DoLeaderForward(leader *monkeyminder.Client) <-chan *mmpb.ServerResponse
 }
 
 type MessageId uint64
@@ -86,9 +88,23 @@ func (c *Create) DoMessage(currentState *tree.Tree) (*mmpb.ServerResponse, []*ra
 	return response, []*raftpb.LogEntry{entry}
 }
 
+func (c *Create) DoLeaderForward(leader *monkeyminder.Client) <-chan *mmpb.ServerResponse {
+	responseChan := make(chan *mmpb.ServerResponse)
+	go func() {
+		success := <-leader.Create(c.Path, c.Data)
+		responseChan <- &mmpb.ServerResponse{
+			Id:        uint64(c.Id),
+			Succeeded: success,
+		}
+	}()
+	return responseChan
+}
+
 func (c *Create) WatchTest(entry *raftpb.LogEntry) bool {
-	// TODO: implement checking logic properly
-	return true
+	samePath := entry.TargetPath == c.Path
+	isCreate := entry.Kind == raftpb.LogEntryType_CREATE
+	sameValue := entry.Value == c.Data
+	return isCreate && samePath && sameValue
 }
 
 func (c *Create) DoMessageWatch(currentState *tree.Tree) *mmpb.ServerResponse {
@@ -120,12 +136,24 @@ func (d *Delete) DoMessage(currentState *tree.Tree) (*mmpb.ServerResponse, []*ra
 }
 
 func (d *Delete) WatchTest(entry *raftpb.LogEntry) bool {
-	// TODO: implement checking logic properly
-	return true
+	samePath := entry.TargetPath == d.Path
+	isDelete := entry.Kind == raftpb.LogEntryType_DELETE
+	return samePath && isDelete
 }
 
 func (d *Delete) DoMessageWatch(currentState *tree.Tree) *mmpb.ServerResponse {
 	panic("Delete does not support watches")
+}
+
+func (d *Delete) DoLeaderForward(leader *monkeyminder.Client) <-chan *mmpb.ServerResponse {
+	responseChan := make(chan *mmpb.ServerResponse)
+	go func() {
+		<-leader.Delete(d.Path, monkeyminder.Version(d.Version))
+		responseChan <- &mmpb.ServerResponse{
+			Id: uint64(d.Id),
+		}
+	}()
+	return responseChan
 }
 
 type Exists struct {
@@ -162,6 +190,10 @@ func (e *Exists) DoMessageWatch(currentState *tree.Tree) *mmpb.ServerResponse {
 	return &mmpb.ServerResponse{
 		Succeeded: err == nil,
 	}
+}
+
+func (e *Exists) DoLeaderForward(leader *monkeyminder.Client) <-chan *mmpb.ServerResponse {
+	panic("Exists does not support leader forwarding.")
 }
 
 type GetData struct {
@@ -210,6 +242,10 @@ func (m *GetData) DoMessageWatch(currentState *tree.Tree) (
 	panic("Not implemented!")
 }
 
+func (m *GetData) DoLeaderForward(leader *monkeyminder.Client) <-chan *mmpb.ServerResponse {
+	panic("Exists does not support leader-forwarding")
+}
+
 type SetData struct {
 	SimpleMessageCommon
 	Path    string
@@ -252,14 +288,25 @@ func (m *SetData) DoMessage(currentState *tree.Tree) (
 }
 
 func (m *SetData) WatchTest(entry *raftpb.LogEntry) bool {
-	// TODO: implement checking logic properly
-	return true
+	samePath := m.Path == entry.TargetPath
+	sameValue := m.Data == entry.Value
+	isUpdate := entry.Kind == raftpb.LogEntryType_UPDATE
+	return samePath && sameValue && isUpdate
 }
 
 func (m *SetData) DoMessageWatch(currentState *tree.Tree) (
 	response *mmpb.ServerResponse,
 ) {
 	panic("SetData does not support watches")
+}
+
+func (m *SetData) DoLeaderForward(leader *monkeyminder.Client) <-chan *mmpb.ServerResponse {
+	responseChan := make(chan *mmpb.ServerResponse)
+	go func() {
+		<-leader.SetData(m.Path, m.Data, monkeyminder.Version(m.Version))
+		responseChan <- &mmpb.ServerResponse{Id: uint64(m.Id)}
+	}()
+	return responseChan
 }
 
 type GetChildren struct {
@@ -320,4 +367,8 @@ func (m *GetChildren) DoMessageWatch(currentState *tree.Tree) (
 	response *mmpb.ServerResponse,
 ) {
 	panic("not implemented")
+}
+
+func (m *GetChildren) DoLeaderForward(leader *monkeyminder.Client) <-chan *mmpb.ServerResponse {
+	panic("GetChildren does not support leader forwarding.")
 }
