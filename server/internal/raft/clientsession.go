@@ -2,6 +2,7 @@ package raft
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -58,7 +59,7 @@ func (s *RaftServer) Session(server grpc.BidiStreamingServer[mmpb.ClientRequest,
 			}
 
 			request, err := server.Recv()
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				recvError <- nil
 				return
 			} else if err != nil {
@@ -93,9 +94,9 @@ clientLoop:
 			break clientLoop
 		case request := <-requestChan:
 			log.Printf("Received request: %v\n", request)
-			if request.Kind == mmpb.RequestType_INTERNAL_LEADERCHECK {
+			if request.GetKind() == mmpb.RequestType_INTERNAL_LEADERCHECK {
 				responseChan <- &mmpb.ServerResponse{
-					Id:               request.Id,
+					Id:               request.GetId(),
 					Succeeded:        true,
 					InternalIsleader: s.leader == s.Id,
 					Version:          uint64(s.leader),
@@ -187,52 +188,54 @@ func (s *RaftServer) clientMessageScheduler(ctx context.Context) {
 // Convert the incoming ClientRequest to the appropriate application message type
 func brokerMessage(req *mmpb.ClientRequest) monkeyminder.ClientMessage {
 	id := monkeyminder.SimpleMessageCommon{
-		Id: monkeyminder.MessageId(req.Id),
+		Id: monkeyminder.MessageId(req.GetId()),
 	}
 	watchId := monkeyminder.WatchMessageCommon{
-		WatchId: monkeyminder.MessageId(req.WatchId),
+		WatchId: monkeyminder.MessageId(req.GetWatchId()),
 	}
 
 	var result monkeyminder.ClientMessage
 
-	switch req.Kind {
+	switch req.GetKind() {
 	case mmpb.RequestType_CREATE:
 		result = &monkeyminder.Create{
 			SimpleMessageCommon: id,
-			Path:                *req.Path,
-			Data:                *req.Data,
+			Path:                req.GetPath(),
+			Data:                req.GetData(),
 		}
 	case mmpb.RequestType_DELETE:
 		result = &monkeyminder.Delete{
 			SimpleMessageCommon: id,
-			Path:                *req.Path,
-			Version:             monkeyminder.Version(req.Version),
+			Path:                req.GetPath(),
+			Version:             monkeyminder.Version(req.GetVersion()),
 		}
 	case mmpb.RequestType_EXISTS:
 		result = &monkeyminder.Exists{
 			SimpleMessageCommon: id,
 			WatchMessageCommon:  watchId,
-			Path:                *req.Path,
+			Path:                req.GetPath(),
 		}
 	case mmpb.RequestType_GETDATA:
 		result = &monkeyminder.GetData{
 			SimpleMessageCommon: id,
 			WatchMessageCommon:  watchId,
-			Path:                *req.Path,
+			Path:                req.GetPath(),
 		}
 	case mmpb.RequestType_SETDATA:
 		result = &monkeyminder.SetData{
 			SimpleMessageCommon: id,
-			Path:                *req.Path,
-			Data:                *req.Data,
-			Version:             monkeyminder.Version(req.Version),
+			Path:                req.GetPath(),
+			Data:                req.GetData(),
+			Version:             monkeyminder.Version(req.GetVersion()),
 		}
 	case mmpb.RequestType_GETCHILDREN:
 		result = &monkeyminder.GetChildren{
 			SimpleMessageCommon: id,
 			WatchMessageCommon:  watchId,
-			Path:                *req.Path,
+			Path:                req.GetPath(),
 		}
+	case mmpb.RequestType_INTERNAL_LEADERCHECK:
+		panic("internal line-skipping request should be handled immediately, not brokered")
 	case mmpb.RequestType_UNSPECIFIED:
 		panic("Unspecified")
 	}

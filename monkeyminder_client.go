@@ -99,9 +99,9 @@ func (client *Client) handleResponses() {
 			return
 		}
 
-		ch, ok := client.chans[resp.Id]
+		ch, ok := client.chans[resp.GetId()]
 		if ok {
-			delete(client.chans, resp.Id)
+			delete(client.chans, resp.GetId())
 			ch <- resp
 		}
 	}
@@ -126,9 +126,9 @@ func (client *Client) Create(path string, data string) <-chan bool {
 	}
 	onComplete := setupCallbackChannel(
 		client,
-		request.Id,
+		request.GetId(),
 		func(resp *mmpb.ServerResponse) bool {
-			return resp.Succeeded
+			return resp.GetSucceeded()
 		},
 		make(chan bool),
 	)
@@ -147,8 +147,8 @@ func (client *Client) Delete(path string, version Version) <-chan bool {
 	}
 	onComplete := setupCallbackChannel(
 		client,
-		request.Id,
-		func(res *mmpb.ServerResponse) bool { return res.Succeeded },
+		request.GetId(),
+		func(res *mmpb.ServerResponse) bool { return res.GetSucceeded() },
 		make(chan bool),
 	)
 	go client.doApi(request)
@@ -161,10 +161,10 @@ type NodeData struct {
 }
 
 func getData_convertResponse(resp *mmpb.ServerResponse) NodeData {
-	if resp.Succeeded {
+	if resp.GetSucceeded() {
 		return NodeData{
-			Data:    *resp.Data,
-			Version: Version(resp.Version),
+			Data:    resp.GetData(),
+			Version: Version(resp.GetVersion()),
 		}
 	} else {
 		return NodeData{
@@ -183,9 +183,9 @@ func (client *Client) GetData(path string, watchChan chan NodeData) <-chan NodeD
 		WatchId: client.nextIdIf(watchChan != nil),
 		Path:    &path,
 	}
-	onComplete := setupCallbackChannel(client, request.Id, getData_convertResponse, make(chan NodeData))
-	if request.WatchId != 0 {
-		setupCallbackChannel(client, request.WatchId, getData_convertResponse, watchChan)
+	onComplete := setupCallbackChannel(client, request.GetId(), getData_convertResponse, make(chan NodeData))
+	if request.GetWatchId() != 0 {
+		setupCallbackChannel(client, request.GetWatchId(), getData_convertResponse, watchChan)
 	}
 	go client.doApi(request)
 	return onComplete
@@ -201,12 +201,12 @@ func (client *Client) Exists(path string, watchChan chan bool) <-chan bool {
 	}
 
 	onComplete := setupCallbackChannel(client,
-		request.Id,
-		func(sr *mmpb.ServerResponse) bool { return sr.Succeeded },
+		request.GetId(),
+		func(sr *mmpb.ServerResponse) bool { return sr.GetSucceeded() },
 		make(chan bool))
 
-	if request.WatchId != 0 {
-		setupCallbackChannel(client, request.WatchId, func(sr *mmpb.ServerResponse) bool { return sr.Succeeded }, watchChan)
+	if request.GetWatchId() != 0 {
+		setupCallbackChannel(client, request.GetWatchId(), func(sr *mmpb.ServerResponse) bool { return sr.GetSucceeded() }, watchChan)
 	}
 
 	go client.doApi(request)
@@ -225,8 +225,8 @@ func (client *Client) SetData(path string, data string, version Version) <-chan 
 	}
 	onComplete := setupCallbackChannel(
 		client,
-		request.Id,
-		func(sr *mmpb.ServerResponse) bool { return sr.Succeeded },
+		request.GetId(),
+		func(sr *mmpb.ServerResponse) bool { return sr.GetSucceeded() },
 		make(chan bool),
 	)
 	go client.doApi(request)
@@ -243,8 +243,8 @@ func (client *Client) GetChildren(path string, watchChan <-chan []string) <-chan
 	}
 	onComplete := setupCallbackChannel(
 		client,
-		request.Id,
-		func(sr *mmpb.ServerResponse) []string { return sr.Children },
+		request.GetId(),
+		func(sr *mmpb.ServerResponse) []string { return sr.GetChildren() },
 		make(chan []string),
 	)
 	go client.doApi(request)

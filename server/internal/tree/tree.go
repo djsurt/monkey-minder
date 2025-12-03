@@ -171,13 +171,13 @@ func cloneNode(node *ZNode) *ZNode {
 }
 
 func (t *Tree) ApplyEntry(entry *raftpb.LogEntry) error {
-	switch entry.Kind {
+	switch entry.GetKind() {
 	case raftpb.LogEntryType_CREATE:
-		return t.Create(entry.TargetPath, entry.Value)
+		return t.Create(entry.GetTargetPath(), entry.GetValue())
 	case raftpb.LogEntryType_UPDATE:
-		return t.Update(entry.TargetPath, entry.Value)
+		return t.Update(entry.GetTargetPath(), entry.GetValue())
 	case raftpb.LogEntryType_DELETE:
-		return t.Delete(entry.TargetPath)
+		return t.Delete(entry.GetTargetPath())
 	default:
 		panic("should be unreachable (modification type must have been invalid)")
 	}

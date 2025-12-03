@@ -58,7 +58,7 @@ func (s *RaftServer) doCandidate(ctx context.Context) {
 			// Reject votes unless the candidate has a higher term than me.
 			vote, shouldAbdicate := s.doCommonRV(voteReq)
 			if shouldAbdicate {
-				log.Printf("Received vote request w/ more recent term from node %d. Reverting to FOLLOWER...\n", voteReq.CandidateId)
+				log.Printf("Received vote request w/ more recent term from node %d. Reverting to FOLLOWER...\n", voteReq.GetCandidateId())
 				s.state = FOLLOWER
 				cancelElection()
 			}
@@ -74,7 +74,7 @@ func (s *RaftServer) doCandidate(ctx context.Context) {
 
 			// If I receive an AE from a node with a term at least as great as
 			// mine, someone else got elected.
-			if staleTerm || s.term == Term(res.Term) {
+			if staleTerm || s.term == Term(res.GetTerm()) {
 				log.Printf("Received AppendEntries from a valid leader. Reverting to FOLLOWER...\n")
 				return
 			}
@@ -103,7 +103,7 @@ func (s *RaftServer) requestVotes(ctx context.Context) <-chan VoteResult {
 	latestEntry, _ := s.log.GetEntryLatest()
 	var lastLogTerm Term
 	if latestEntry != nil {
-		lastLogTerm = Term((*latestEntry).Term)
+		lastLogTerm = Term((*latestEntry).GetTerm())
 	} else {
 		lastLogTerm = Term(0)
 	}

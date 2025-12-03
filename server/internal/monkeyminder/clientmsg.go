@@ -101,9 +101,9 @@ func (c *Create) DoLeaderForward(leader *monkeyminder.Client) <-chan *mmpb.Serve
 }
 
 func (c *Create) WatchTest(entry *raftpb.LogEntry) bool {
-	samePath := entry.TargetPath == c.Path
-	isCreate := entry.Kind == raftpb.LogEntryType_CREATE
-	sameValue := entry.Value == c.Data
+	samePath := entry.GetTargetPath() == c.Path
+	isCreate := entry.GetKind() == raftpb.LogEntryType_CREATE
+	sameValue := entry.GetValue() == c.Data
 	return isCreate && samePath && sameValue
 }
 
@@ -136,8 +136,8 @@ func (d *Delete) DoMessage(currentState *tree.Tree) (*mmpb.ServerResponse, []*ra
 }
 
 func (d *Delete) WatchTest(entry *raftpb.LogEntry) bool {
-	samePath := entry.TargetPath == d.Path
-	isDelete := entry.Kind == raftpb.LogEntryType_DELETE
+	samePath := entry.GetTargetPath() == d.Path
+	isDelete := entry.GetKind() == raftpb.LogEntryType_DELETE
 	return samePath && isDelete
 }
 
@@ -178,11 +178,11 @@ func (e *Exists) DoMessage(currentState *tree.Tree) (*mmpb.ServerResponse, []*ra
 }
 
 func (e *Exists) WatchTest(entry *raftpb.LogEntry) bool {
-	if entry.TargetPath != e.Path {
+	if entry.GetTargetPath() != e.Path {
 		return false
 	}
 	// This watch fires on CREATE and DELETE events
-	return entry.Kind == raftpb.LogEntryType_CREATE || entry.Kind == raftpb.LogEntryType_DELETE
+	return entry.GetKind() == raftpb.LogEntryType_CREATE || entry.GetKind() == raftpb.LogEntryType_DELETE
 }
 
 func (e *Exists) DoMessageWatch(currentState *tree.Tree) *mmpb.ServerResponse {
@@ -229,9 +229,9 @@ func (m *GetData) DoMessage(currentState *tree.Tree) (
 
 // If the entry modifies the value of m.path, returns true.
 func (m *GetData) WatchTest(entry *raftpb.LogEntry) bool {
-	isMyTarget := m.Path == entry.TargetPath
-	isModification := (entry.Kind == raftpb.LogEntryType_UPDATE ||
-		entry.Kind == raftpb.LogEntryType_DELETE)
+	isMyTarget := m.Path == entry.GetTargetPath()
+	isModification := (entry.GetKind() == raftpb.LogEntryType_UPDATE ||
+		entry.GetKind() == raftpb.LogEntryType_DELETE)
 
 	return isMyTarget && isModification
 }
@@ -288,9 +288,9 @@ func (m *SetData) DoMessage(currentState *tree.Tree) (
 }
 
 func (m *SetData) WatchTest(entry *raftpb.LogEntry) bool {
-	samePath := m.Path == entry.TargetPath
-	sameValue := m.Data == entry.Value
-	isUpdate := entry.Kind == raftpb.LogEntryType_UPDATE
+	samePath := m.Path == entry.GetTargetPath()
+	sameValue := m.Data == entry.GetValue()
+	isUpdate := entry.GetKind() == raftpb.LogEntryType_UPDATE
 	return samePath && sameValue && isUpdate
 }
 
@@ -342,11 +342,11 @@ func (m *GetChildren) DoMessage(currentState *tree.Tree) (
 // deleted, return true.
 func (m *GetChildren) WatchTest(entry *raftpb.LogEntry) bool {
 	// If the parent is deleted, this should trigger
-	if entry.TargetPath == m.Path && entry.Kind == raftpb.LogEntryType_DELETE {
+	if entry.GetTargetPath() == m.Path && entry.GetKind() == raftpb.LogEntryType_DELETE {
 		return true
 	}
 
-	suffix, found := strings.CutPrefix(entry.TargetPath, m.Path+"/")
+	suffix, found := strings.CutPrefix(entry.GetTargetPath(), m.Path+"/")
 	// Not a child of path
 	if !found {
 		return false

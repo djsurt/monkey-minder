@@ -23,7 +23,7 @@ func (s *RaftServer) RequestVote(
 	return vote, nil
 }
 
-// When in the leader state, make an an AppendEntries either to update a
+// When in the leader state, make an AppendEntries either to update a
 // follower's log, or to send a heartbeat to the follower.
 // When in the follower state, respond to AppendEntries requests and update
 // election timeout.
@@ -59,15 +59,15 @@ func (s *RaftServer) doCommonAE(request *raftpb.AppendEntriesRequest) (
 
 	// §5.1: If RPC request or response contains term T > currentTerm:
 	// set currentTerm = T, convert to follower
-	staleTerm = Term(request.Term) > s.term
+	staleTerm = Term(request.GetTerm()) > s.term
 	if staleTerm {
-		s.updateTerm(Term(request.Term))
+		s.updateTerm(Term(request.GetTerm()))
 		s.votedFor = 0
 	}
 
 	// Update the leader
-	if s.term == Term(request.Term) {
-		s.leader = NodeId(request.LeaderId)
+	if s.term == Term(request.GetTerm()) {
+		s.leader = NodeId(request.GetLeaderId())
 	}
 
 	response = &raftpb.AppendEntriesResult{
@@ -75,14 +75,14 @@ func (s *RaftServer) doCommonAE(request *raftpb.AppendEntriesRequest) (
 	}
 
 	// §5.1: Reply false if term < currentTerm
-	if Term(request.Term) < s.term {
+	if Term(request.GetTerm()) < s.term {
 		response.Success = false
 		return response, staleTerm
 	}
 
 	// §5.3: Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm
 	myLogLastIdx := s.log.IndexOfLast()
-	prevLogIdx := raftlog.Index(request.PrevLogIndex)
+	prevLogIdx := raftlog.Index(request.GetPrevLogIndex())
 
 	// My log should agree with the leader's up until at least prevLogIdx,
 	// or else the leader needs to go further in the log history to find
@@ -98,11 +98,11 @@ func (s *RaftServer) doCommonAE(request *raftpb.AppendEntriesRequest) (
 	if logOk && prevLogIdx > 0 {
 		prevEntry, err := s.log.GetEntryAt(prevLogIdx)
 		if err != nil {
-			log.Printf("Error retrieving latest log while processing AE from leader %d: %v\n", request.LeaderId, err)
+			log.Printf("Error retrieving latest log while processing AE from leader %d: %v\n", request.GetLeaderId(), err)
 			response.Success = false
 			return
 		}
-		logOk = logOk && (*prevEntry).Term == request.PrevLogTerm
+		logOk = logOk && (*prevEntry).GetTerm() == request.GetPrevLogTerm()
 	}
 
 	// My log and leader's log agree up to and including prevLogIdx
@@ -118,11 +118,11 @@ func (s *RaftServer) doCommonAE(request *raftpb.AppendEntriesRequest) (
 	// §5.3: If an existing entry conflicts with a new one (same index but
 	// different terms), delete the existing entry and all that follow it
 	// FIXME handle returned error
-	s.reconcileLogs(prevLogIdx, request.Entries)
+	s.reconcileLogs(prevLogIdx, request.GetEntries())
 
 	// If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index
 	// of last new entry)
-	leaderCommit := raftlog.Index(request.LeaderCommit)
+	leaderCommit := raftlog.Index(request.GetLeaderCommit())
 	commitTo := min(leaderCommit, s.log.IndexOfLast())
 	err := s.commitPoint.AdvanceTo(commitTo)
 	if err != nil {
@@ -170,7 +170,7 @@ func (s *RaftServer) reconcileLogs(
 			break
 		}
 
-		if (*existingEntry).Term != newEntries[i].Term {
+		if (*existingEntry).GetTerm() != newEntries[i].GetTerm() {
 			//Found divergence point
 			divergenceIdx = i
 			break
@@ -246,10 +246,10 @@ func (s *RaftServer) doCommonRV(
 	vote *raftpb.Vote,
 	shouldAbdicate bool,
 ) {
-	shouldAbdicate = Term(request.Term) > s.term
+	shouldAbdicate = Term(request.GetTerm()) > s.term
 	// Change my vote if the candidate has a higher term than me.
 	if shouldAbdicate {
-		s.updateTerm(Term(request.Term))
+		s.updateTerm(Term(request.GetTerm()))
 		s.state = FOLLOWER
 		s.votedFor = 0
 	}
@@ -259,36 +259,36 @@ func (s *RaftServer) doCommonRV(
 	}
 
 	// §5.1: Reply false if term < currentTerm
-	if Term(request.Term) < s.term {
+	if Term(request.GetTerm()) < s.term {
 		vote.VoteGranted = false
 		return vote, shouldAbdicate
 	}
-	log.Printf("VOTE: My Term: %d, Candidate's Term: %d\n", s.term, request.Term)
+	log.Printf("VOTE: My Term: %d, Candidate's Term: %d\n", s.term, request.GetTerm())
 
 	// Get the index and term numbers from the voter's last log entry.
 	lastEntry, lastIndex := s.log.GetEntryLatest()
 	myLog := LastLog{Index: lastIndex}
 	if lastEntry != nil {
-		myLog.Term = Term((*lastEntry).Term)
+		myLog.Term = Term((*lastEntry).GetTerm())
 	} else {
 		myLog.Term = Term(0)
 	}
 
 	// Get the index and term numbers from the candidate's last log entry.
 	candidateLog := LastLog{
-		Term:  Term(request.LastLogTerm),
-		Index: raftlog.Index(request.LastLogIndex),
+		Term:  Term(request.GetLastLogTerm()),
+		Index: raftlog.Index(request.GetLastLogIndex()),
 	}
 
 	// §5.2, §5.4: If votedFor is null or candidateId, and candidate's log
 	// is at least as up-to-date as receiver's log, grant vote.
 	logOk := candidateLog.AtLeastAsUpToDateAs(&myLog)
-	if Term(request.Term) == s.term && logOk &&
+	if Term(request.GetTerm()) == s.term && logOk &&
 		(s.votedFor == 0 ||
-			s.votedFor == NodeId(request.CandidateId)) {
+			s.votedFor == NodeId(request.GetCandidateId())) {
 		vote.VoteGranted = true
-		s.votedFor = NodeId(request.CandidateId)
-		log.Printf("Granting vote to CANDIDATE %d\n", request.CandidateId)
+		s.votedFor = NodeId(request.GetCandidateId())
+		log.Printf("Granting vote to CANDIDATE %d\n", request.GetCandidateId())
 	} else {
 		vote.VoteGranted = false
 	}

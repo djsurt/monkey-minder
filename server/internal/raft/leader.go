@@ -33,7 +33,7 @@ func (s *RaftServer) doLeader(ctx context.Context) {
 	setupPeerComm := func(id NodeId) (markDidAE func(), markShouldAE func()) {
 		// FIXME i think this will double-enqueue AEs in some situations?
 		heartbeatInterval := time.Duration(DEFAULT_HEARTBEAT_TIMEOUT) * time.Millisecond
-		// FIXME pretty sure we should actually make the initial initial timer duration zero?
+		// FIXME pretty sure we should actually make the initial timer duration zero?
 		shouldHeartbeat := time.NewTicker(heartbeatInterval)
 		// FIXME using `struct{}` a la unit type here feels pretty janky
 		shouldAE := make(chan struct{})
@@ -147,7 +147,7 @@ func (s *RaftServer) doLeader(ctx context.Context) {
 			prevLog, err := s.log.GetEntryAt(prevLogIndex)
 			var prevLogTerm Term
 			if err == nil {
-				prevLogTerm = Term((*prevLog).Term)
+				prevLogTerm = Term((*prevLog).GetTerm())
 			} else {
 				// if we do snapshots this won't be correct
 				if s.log.LenLogical() != s.log.LenActual() {
@@ -179,7 +179,7 @@ func (s *RaftServer) doLeader(ctx context.Context) {
 			}(s.peerConns[peerId], incomingAEResponses)
 		case resp := <-incomingAEResponses:
 			lp := leaderPeers[resp.peer]
-			if resp.result.Success {
+			if resp.result.GetSuccess() {
 				// "If successful: update nextIndex and matchIndex for follower (§5.3)"
 				lp.nextIndex = max(lp.nextIndex, resp.newNextIndex)
 				lp.matchIndex = max(lp.matchIndex, resp.newMatchIndex)
@@ -211,7 +211,7 @@ func (s *RaftServer) doLeader(ctx context.Context) {
 							err)
 					}
 					// Leader can ONLY ever commit entries from the CURRENT TERM
-					termMatches := Term((*majorityEntry).Term) == s.term
+					termMatches := Term((*majorityEntry).GetTerm()) == s.term
 					// Update commitIdx, update client requests & watches depending
 					// on it.
 					currCommitIdx := s.commitPoint.Index()

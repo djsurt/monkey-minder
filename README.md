@@ -13,5 +13,10 @@ alternatively, to auto rebuild when protobuf files change,
 docker compose up dev --watch
 ```
 
+## run linter
+```bash
+docker compose run --rm dev golangci-lint run
+```
+
 ## build report pdf
 see [report's readme](report/README.md)

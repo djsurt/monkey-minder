@@ -1,0 +1,15 @@
+version = "2"
+
+[linters]
+default = "standard"
+enable = [
+    "errorlint", "errcheck", "exhaustruct", "funcorder", "protogetter", "exhaustive", "inamedparam",
+    "misspell", "dupword", "paralleltest", "prealloc", "staticcheck", "unparam", "wrapcheck", "errname",
+]
+
+[severity]
+default = "error"
+
+[[severity.rules]]
+linters = ["misspell", "dupword", "paralleltest", "prealloc", "staticcheck", "unparam", "wrapcheck", "errname"]
+severity = "warning"
