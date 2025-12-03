@@ -1,0 +1,27 @@
+[project]
+dependencies = [
+    "aiohttp==3.8.6",
+    "yarl==1.8.2",
+    "aiodocker==0.21.0",
+    "protobuf==6.33.1",
+    "grpcio==1.76.0",
+]
+name = "mmtester"
+version = "0.1.0"
+requires-python = "==3.11.*"
+
+[project.scripts]
+mmtester = "tests:main"
+
+[tool.mypy]
+disallow_untyped_defs = true
+disallow_any_unimported = true
+no_implicit_optional = true
+check_untyped_defs = true
+warn_return_any = true
+warn_unused_ignores = true
+show_error_codes = true
+
+[build-system]
+requires = ["uv_build>=0.8.0,<0.9"]
+build-backend = "uv_build"

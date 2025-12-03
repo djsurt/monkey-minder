@@ -5,6 +5,7 @@ package raft
 import (
 	"context"
 	"log"
+	"sort"
 	"time"
 
 	raftlog "github.com/djsurt/monkey-minder/server/internal/log"
@@ -13,10 +14,6 @@ import (
 
 func (s *RaftServer) doLeader(ctx context.Context) {
 	// TODO: "If command received from client: append entry to local log, respond after entry applied to state machine (§5.3)"
-	// TODO: "If there exists an N such that N > commitIndex, a majority of matchIndex[i] ≥ N, and log[N].term == currentTerm: set commitIndex = N (§5.3, §5.4)."
-
-	// FIXME remove me
-	testingAppendsTimer := time.NewTicker(5 * time.Second)
 
 	rpcCtx, rpcCancel := context.WithCancel(ctx)
 	defer rpcCancel()
@@ -165,6 +162,7 @@ func (s *RaftServer) doLeader(ctx context.Context) {
 				PrevLogIndex: uint64(prevLogIndex),
 				PrevLogTerm:  uint64(prevLogTerm),
 				Entries:      entriesToSend,
+				LeaderCommit: uint64(s.commitPoint.Index()),
 			}
 
 			go func(peerConn raftpb.RaftClient, responses chan<- incomingAEResponse) {
@@ -185,19 +183,62 @@ func (s *RaftServer) doLeader(ctx context.Context) {
 				// "If successful: update nextIndex and matchIndex for follower (§5.3)"
 				lp.nextIndex = max(lp.nextIndex, resp.newNextIndex)
 				lp.matchIndex = max(lp.matchIndex, resp.newMatchIndex)
+
+				log.Printf("Log length: %d\n", s.log.LenLogical())
+				// "If there exists an N such that N > commitIndex, a majority
+				// of matchIndex[i] ≥ N, and log[N].term == currentTerm: set
+				// commitIndex = N (§5.3, §5.4)."
+				var matchIndices []int
+				for id, replica := range leaderPeers {
+					log.Printf("Node %d (matchIdx, nextIdx): (%d, %d)\n", id, replica.matchIndex, replica.nextIndex)
+					matchIndices = append(matchIndices, int(replica.matchIndex))
+				}
+
+				// Sort the match indices by value; assume leader's is at
+				// least as large as the largest matchIdx.
+				sort.Sort(sort.Reverse(sort.IntSlice(matchIndices)))
+
+				// Grab the smallest matchIdx agreed upon by a majority of the
+				// cluster.
+				quorumCount := ((len(leaderPeers) + 1) / 2) - 1
+				smallestMajorityMatchIdx := raftlog.Index(matchIndices[quorumCount])
+
+				if s.log.HasEntryAt(smallestMajorityMatchIdx) {
+					majorityEntry, err := s.log.GetEntryAt(smallestMajorityMatchIdx)
+					if err != nil {
+						log.Panicf("Error retrieving most recent quorum log entry at idx %d: %v\n",
+							smallestMajorityMatchIdx,
+							err)
+					}
+					// Leader can ONLY ever commit entries from the CURRENT TERM
+					termMatches := Term((*majorityEntry).Term) == s.term
+					// Update commitIdx, update client requests & watches depending
+					// on it.
+					currCommitIdx := s.commitPoint.Index()
+					if smallestMajorityMatchIdx > currCommitIdx && termMatches {
+						log.Printf("Advancing from %d to index %d\n", currCommitIdx, smallestMajorityMatchIdx)
+						err := s.commitPoint.AdvanceTo(smallestMajorityMatchIdx)
+						if err != nil {
+							log.Panicf("Error committing log entries: %v\n", err)
+						}
+						for i := currCommitIdx + 1; i <= s.commitPoint.Index(); i++ {
+							entry, err := s.log.GetEntryAt(i)
+							if err != nil {
+								log.Panicf("Could not retrieve log entry at index %d. This entry should already be there!\n", i)
+							}
+							s.watches.SubmitEntry(*entry, i)
+						}
+					}
+				}
 			} else {
 				// "If AppendEntries fails because of log inconsistency: decrement nextIndex and retry (§5.3)"
 				// FIXME this is not distinguishing causes of failure, see above vs. what we have here
 				lp.nextIndex--
 				lp.markShouldAE()
 			}
-		case <-testingAppendsTimer.C:
-			s.log.Append(&raftpb.LogEntry{
-				Kind:       raftpb.LogEntryType_CREATE,
-				Term:       uint64(s.term),
-				TargetPath: "foo",
-				Value:      "qux",
-			})
+		case msg := <-s.clientMessages:
+			log.Printf("going into msg handle. commit index = %v", s.commitPoint.Index())
+			s.handleClientMessage(msg)
 		}
 	}
 }

@@ -43,6 +43,7 @@ func (s *RaftServer) doCandidate(ctx context.Context) {
 				if len(votes) > (len(s.peerConns)+1)/2 {
 					log.Printf("Asserting myself as LEADER.\n")
 					s.state = LEADER
+					s.leader = s.Id
 					cancelElection()
 					return
 				}
@@ -77,6 +78,8 @@ func (s *RaftServer) doCandidate(ctx context.Context) {
 				log.Printf("Received AppendEntries from a valid leader. Reverting to FOLLOWER...\n")
 				return
 			}
+		case msg := <-s.clientMessages:
+			s.handleClientMessage(msg)
 		}
 	}
 }

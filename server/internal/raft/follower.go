@@ -31,6 +31,9 @@ func (s *RaftServer) doFollower(ctx context.Context) {
 			vote, _ := s.doCommonRV(rvReq)
 			s.rvResponseChan <- vote
 			electionTimer = getNewElectionTimer()
+
+		case msg := <-s.clientMessages:
+			s.handleClientMessage(msg)
 		}
 	}
 }

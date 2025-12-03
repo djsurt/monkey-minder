@@ -5,10 +5,14 @@ package raft
 import (
 	"context"
 	"fmt"
+	"log"
 	"math/rand"
 	"net"
+	"sync/atomic"
 	"time"
 
+	monkeyminder "github.com/djsurt/monkey-minder"
+	mmpb "github.com/djsurt/monkey-minder/proto"
 	raftlog "github.com/djsurt/monkey-minder/server/internal/log"
 	tree "github.com/djsurt/monkey-minder/server/internal/tree"
 	raftpb "github.com/djsurt/monkey-minder/server/proto/raft"
@@ -22,6 +26,7 @@ type NodeId uint64
 type NodeState uint
 
 type Log = raftlog.Log[*raftpb.LogEntry, *tree.Tree]
+type LogCheckpoint = raftlog.Checkpoint[*raftpb.LogEntry, *tree.Tree]
 
 const (
 	FOLLOWER NodeState = iota
@@ -31,23 +36,40 @@ const (
 
 type RaftServer struct {
 	raftpb.UnimplementedRaftServer
-	Port           int
-	Id             NodeId
-	peers          map[NodeId]string
-	state          NodeState
-	grpcServer     *grpc.Server
-	listener       net.Conn
-	peerConns      map[NodeId]raftpb.RaftClient
-	term           Term
-	votedFor       NodeId
-	log            Log
-	aeRequestChan  chan *raftpb.AppendEntriesRequest
-	aeResponseChan chan *raftpb.AppendEntriesResult
-	rvRequestChan  chan *raftpb.VoteRequest
-	rvResponseChan chan *raftpb.Vote
+	mmpb.UnimplementedMonkeyMinderServiceServer
+	Port              int
+	Id                NodeId
+	peers             map[NodeId]string
+	state             NodeState
+	grpcServer        *grpc.Server
+	listener          net.Conn
+	peerConns         map[NodeId]raftpb.RaftClient
+	mmConns           map[NodeId]*monkeyminder.Client
+	term              Term
+	votedFor          NodeId
+	log               *Log
+	commitPoint       *LogCheckpoint
+	leader            NodeId
+	aeRequestChan     chan *raftpb.AppendEntriesRequest
+	aeResponseChan    chan *raftpb.AppendEntriesResult
+	rvRequestChan     chan *raftpb.VoteRequest
+	rvResponseChan    chan *raftpb.Vote
+	clientSessions    map[sessionId]*clientSession
+	clientSessNextUid atomic.Uint64
+	// intermediary, client msgs folded into one channel
+	clientMessagesIncoming chan clientMsg
+	// client msgs to actually be handled
+	clientMessages          chan clientMsg
+	clientLeaderMessageDone chan struct{}
+	watches                 *WatchManager
 }
 
 func NewRaftServer(port int, id NodeId, peers map[NodeId]string) *RaftServer {
+	log := raftlog.NewLog(tree.NewTree(), 0)
+	commitPoint, err := log.NewCheckpointAt(log.IndexBeforeFirst())
+	if err != nil {
+		panic(err)
+	}
 	return &RaftServer{
 		Port:  port,
 		Id:    id,
@@ -55,11 +77,17 @@ func NewRaftServer(port int, id NodeId, peers map[NodeId]string) *RaftServer {
 		state: FOLLOWER,
 		term:  1,
 		// TODO should be loading from disk instead in the case where we do that
-		log:            raftlog.NewLog(tree.NewTree(), 0),
-		aeRequestChan:  make(chan *raftpb.AppendEntriesRequest),
-		aeResponseChan: make(chan *raftpb.AppendEntriesResult),
-		rvRequestChan:  make(chan *raftpb.VoteRequest),
-		rvResponseChan: make(chan *raftpb.Vote),
+		log:                     log,
+		commitPoint:             commitPoint,
+		aeRequestChan:           make(chan *raftpb.AppendEntriesRequest),
+		aeResponseChan:          make(chan *raftpb.AppendEntriesResult),
+		rvRequestChan:           make(chan *raftpb.VoteRequest),
+		rvResponseChan:          make(chan *raftpb.Vote),
+		clientSessions:          make(map[sessionId]*clientSession),
+		clientMessages:          make(chan clientMsg),
+		clientMessagesIncoming:  make(chan clientMsg),
+		clientLeaderMessageDone: make(chan struct{}),
+		watches:                 NewWatchManager(),
 	}
 }
 
@@ -114,6 +142,7 @@ func (s *RaftServer) Serve() error {
 	// Create & register gRPC server
 	s.grpcServer = grpc.NewServer()
 	raftpb.RegisterRaftServer(s.grpcServer, s)
+	mmpb.RegisterMonkeyMinderServiceServer(s.grpcServer, s)
 
 	// Create peer connections
 	err = s.connectToPeers()
@@ -124,6 +153,7 @@ func (s *RaftServer) Serve() error {
 	// Start stateMachineLoop
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	defer cancelFunc()
+	go s.clientMessageScheduler(ctx)
 	go s.doLoop(ctx)
 
 	// Begin serving ElectionServer RPCs
@@ -142,6 +172,8 @@ func (s *RaftServer) connectToPeers() error {
 	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	peerConns := make(map[NodeId]raftpb.RaftClient)
+	mmConns := make(map[NodeId]*monkeyminder.Client)
+
 	for peer, addr := range s.peers {
 		conn, err := grpc.NewClient(addr, opts...)
 		if err != nil {
@@ -149,8 +181,15 @@ func (s *RaftServer) connectToPeers() error {
 		}
 		client := raftpb.NewRaftClient(conn)
 		peerConns[peer] = client
+
+		mmClient, err := monkeyminder.NewClient(context.Background(), addr)
+		if err != nil {
+			log.Printf("Error creating monkeyminder service connection w/ peer: %v\n", err)
+		}
+		mmConns[peer] = mmClient
 	}
 
 	s.peerConns = peerConns
+	s.mmConns = mmConns
 	return nil
 }

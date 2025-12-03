@@ -25,7 +25,7 @@ func (s *RaftServer) RequestVote(
 
 // When in the leader state, make an an AppendEntries either to update a
 // follower's log, or to send a heartbeat to the follower.
-// When in the follower state, respond to AppendEntries requests and udpate
+// When in the follower state, respond to AppendEntries requests and update
 // election timeout.
 func (s *RaftServer) AppendEntries(
 	ctx context.Context,
@@ -63,6 +63,11 @@ func (s *RaftServer) doCommonAE(request *raftpb.AppendEntriesRequest) (
 	if staleTerm {
 		s.updateTerm(Term(request.Term))
 		s.votedFor = 0
+	}
+
+	// Update the leader
+	if s.term == Term(request.Term) {
+		s.leader = NodeId(request.LeaderId)
 	}
 
 	response = &raftpb.AppendEntriesResult{
@@ -112,18 +117,14 @@ func (s *RaftServer) doCommonAE(request *raftpb.AppendEntriesRequest) (
 
 	// §5.3: If an existing entry conflicts with a new one (same index but
 	// different terms), delete the existing entry and all that follow it
+	// FIXME handle returned error
 	s.reconcileLogs(prevLogIdx, request.Entries)
 
 	// If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index
 	// of last new entry)
 	leaderCommit := raftlog.Index(request.LeaderCommit)
-	commitIdx := s.log.GetCommitIndex()
-	if leaderCommit > commitIdx {
-		lastIdx := s.log.IndexOfLast()
-		commitIdx = min(leaderCommit, lastIdx)
-	}
-
-	err := s.log.Commit(commitIdx)
+	commitTo := min(leaderCommit, s.log.IndexOfLast())
+	err := s.commitPoint.AdvanceTo(commitTo)
 	if err != nil {
 		log.Panicf("Error committing log entries: %v\n", err)
 	}
@@ -147,7 +148,10 @@ func (s *RaftServer) reconcileLogs(
 	// If all new entries are beyond our current log, just append them all
 	if startIdx > myLogLastIdx {
 		for _, entry := range newEntries {
-			s.log.Append(entry)
+			err := s.log.Append(entry)
+			if err != nil {
+				log.Panicf("error applying entries while reconciling logs: %v", err)
+			}
 		}
 		return len(newEntries), nil
 	}
@@ -180,7 +184,10 @@ func (s *RaftServer) reconcileLogs(
 		appendStart := int(myLogLastIdx - startIdx + 1)
 		if appendStart < len(newEntries) {
 			for i := appendStart; i < len(newEntries); i++ {
-				s.log.Append(newEntries[i])
+				err := s.log.Append(newEntries[i])
+				if err != nil {
+					log.Panicf("error applying entries while reconciling logs: %v", err)
+				}
 			}
 			return len(newEntries) - appendStart, nil
 		}
@@ -197,7 +204,10 @@ func (s *RaftServer) reconcileLogs(
 
 	entriesAdded := 0
 	for i := divergenceIdx; i < len(newEntries); i++ {
-		s.log.Append(newEntries[i])
+		err := s.log.Append(newEntries[i])
+		if err != nil {
+			log.Panicf("error applying entries while reconciling logs: %v", err)
+		}
 		entriesAdded++
 	}
 
