@@ -11,7 +11,7 @@ import itertools
 import logging
 import tarfile
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, Awaitable, Coroutine, Generator, Mapping, NamedTuple, Self
+from typing import TYPE_CHECKING, Any, Awaitable, Coroutine, Generator, Mapping, NamedTuple, Self, cast
 from collections.abc import AsyncIterator
 import aiodocker
 from aiodocker.execs import Exec
@@ -253,7 +253,7 @@ class NodeContainer:
 
     @classmethod
     @asynccontextmanager
-    async def start_group_of_n(cls, n_nodes: int, start: bool) -> AsyncIterator[list['NodeApi']]:
+    async def start_group_of_n(cls, n_nodes: int, start: bool) -> AsyncIterator['NodeClusterApi']:
         nodes = list[NodeApi]()
 
         try:
@@ -267,7 +267,7 @@ class NodeContainer:
             if start:
                 for node in nodes:
                     await node.container._start()
-            yield nodes
+            yield NodeClusterApi(nodes)
         finally:
             for node in nodes:
                 await node.kill()
@@ -311,13 +311,62 @@ class NodeApi:
         await other._iptables_exec(self, '--delete', 'INPUT')
         await other._iptables_exec(self, '--delete', 'OUTPUT')
 
+    async def _get_leaderinfo(self):
+        async with start_client(self) as client:
+            return await client._get_leaderinfo()
+
     async def is_leader(self) -> bool:
         async with start_client(self) as client:
             return await client.is_leader()
 
+class NodeClusterApi:
+    nodes: list[NodeApi]
+
+    def __init__(self, nodes: list[NodeApi]):
+        self.nodes = nodes
+
+    # make the cluster iterable over its nodes,
+    #  this makes e.g.
+    #    a, b, c = cluster
+    #  work.
+    def __iter__(self):
+        return iter(self.nodes)
+
+    async def wait_for_election(self) -> tuple[NodeApi, list[NodeApi]]:
+        """
+        wait for an election to have occurred. returns the elected leader.
+        """
+        config = config_var.get()
+        while True:
+            # poll all nodes and only listen to the first one to respond.
+            # this way we'll still get a response if a given node was killed
+            responded, pending = await asyncio.wait(
+                [asyncio.create_task(n._get_leaderinfo()) for n in self.nodes],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            info = next(iter(responded)).result()
+            for task in pending:
+                task.cancel()
+            if info.leader_id == 0:
+                await asyncio.sleep(config.alivetest_retry_delay)
+            else:
+                leader = None
+                followers = list[NodeApi]()
+                for n in self.nodes:
+                    if n.container.mm_id == info.leader_id:
+                        leader = n
+                    else:
+                        followers.append(n)
+                assert leader is not None
+                return leader, followers
+
 class _ClientGetDataResponse(NamedTuple):
     data: str
     version: int
+
+class _ClientLeaderInfoResponse(NamedTuple):
+    leader_id: int
+    is_leader: bool
 
 class ClientApi:
     _num: int
@@ -401,14 +450,14 @@ class ClientApi:
     async def get_children(self, path: str) -> list[str]:
         return list((await self._api(ClientRequest(kind=protos.GETCHILDREN, id=self._next_num(), path=path))).children)
 
-    async def _get_leaderinfo(self) -> tuple[int, bool]:
+    async def _get_leaderinfo(self) -> _ClientLeaderInfoResponse:
         resp = await self._api(ClientRequest(kind=protos.INTERNAL_LEADERCHECK, id=self._next_num()))
-        return resp.version, resp.internal_isleader
+        return _ClientLeaderInfoResponse(resp.version, resp.internal_isleader)
 
     async def is_leader(self) -> bool:
         return (await self._get_leaderinfo())[1]
 
-def start_nodes(n: int, /, *, start=True) -> AbstractAsyncContextManager[list[NodeApi]]:
+def start_nodes(n: int, /, *, start=True) -> AbstractAsyncContextManager[NodeClusterApi]:
     return NodeContainer.start_group_of_n(n, start)
 
 def _setup_cluster_config(nodes: list[NodeApi]) -> bytes:
