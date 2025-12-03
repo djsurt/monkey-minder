@@ -12,6 +12,7 @@ enum RequestType {
   GETDATA = 4;
   SETDATA = 5;
   GETCHILDREN = 6;
+  INTERNAL_LEADERCHECK = 7;
 }
 
 
@@ -36,6 +37,7 @@ message ServerResponse {
   repeated string children = 4;
   // provided on: GETDATA
   uint64 version = 5;
+  bool internal_isleader = 6;
 }
 
 

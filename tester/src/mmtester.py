@@ -311,6 +311,10 @@ class NodeApi:
         await other._iptables_exec(self, '--delete', 'INPUT')
         await other._iptables_exec(self, '--delete', 'OUTPUT')
 
+    async def is_leader(self) -> bool:
+        async with start_client(self) as client:
+            return await client.is_leader()
+
 class _ClientGetDataResponse(NamedTuple):
     data: str
     version: int
@@ -337,7 +341,7 @@ class ClientApi:
     async def _send_loop(self):
         while True:
             msg = await self._outgoing.get()
-            print(f'outgoing {msg=}')
+            # print(f'outgoing {msg=}')
             await self._session.write(msg)
             self._outgoing.task_done()
 
@@ -351,7 +355,7 @@ class ClientApi:
                 print(f'client died! with message {ex=}')
                 break
             else:
-                print(f'got {msg=}')
+                # print(f'got {msg=}')
                 match msg:
                     case m if m == grpc.aio.EOF:
                         break
@@ -396,6 +400,13 @@ class ClientApi:
 
     async def get_children(self, path: str) -> list[str]:
         return list((await self._api(ClientRequest(kind=protos.GETCHILDREN, id=self._next_num(), path=path))).children)
+
+    async def _get_leaderinfo(self) -> tuple[int, bool]:
+        resp = await self._api(ClientRequest(kind=protos.INTERNAL_LEADERCHECK, id=self._next_num()))
+        return resp.version, resp.internal_isleader
+
+    async def is_leader(self) -> bool:
+        return (await self._get_leaderinfo())[1]
 
 def start_nodes(n: int, /, *, start=True) -> AbstractAsyncContextManager[list[NodeApi]]:
     return NodeContainer.start_group_of_n(n, start)

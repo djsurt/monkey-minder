@@ -93,9 +93,18 @@ clientLoop:
 			break clientLoop
 		case request := <-requestChan:
 			log.Printf("Received request: %v\n", request)
-			s.clientMessagesIncoming <- clientMsg{
-				sessionId: sess.uid,
-				msg:       brokerMessage(request),
+			if request.Kind == mmpb.RequestType_INTERNAL_LEADERCHECK {
+				responseChan <- &mmpb.ServerResponse{
+					Id:               request.Id,
+					Succeeded:        true,
+					InternalIsleader: s.leader == s.Id,
+					Version:          uint64(s.leader),
+				}
+			} else {
+				s.clientMessagesIncoming <- clientMsg{
+					sessionId: sess.uid,
+					msg:       brokerMessage(request),
+				}
 			}
 		}
 	}
