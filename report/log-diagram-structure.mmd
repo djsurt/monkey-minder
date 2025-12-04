@@ -5,10 +5,10 @@ config:
 flowchart LR
     head(("Head<br>Snapshot"))
     subgraph Entries
-        n1["n"]
-        n2["n+1"]
-        m1["m-1"]
-        m2["m"]
+        n1["n"]@{ shape: sm-circ }
+        n2["n+1"]@{ shape: sm-circ }
+        m1["m-1"]@{ shape: sm-circ }
+        m2["m"]@{ shape: sm-circ }
     end
     tail(("Tail<br>Snapshot"))
     head --- n1

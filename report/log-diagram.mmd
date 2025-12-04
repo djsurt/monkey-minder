@@ -1,15 +1,38 @@
 ---
 config:
     # layout: elk
+    class:
+        hideEmptyMembersBox: true
 ---
 classDiagram
-    note "TODO finish me"
     class Snapshot~E~ {
-        <<Interface>>
-        +Clone() Self
-        +ApplyEntry(E entry)
+        <<interface>>
+        + Clone() Self
+        + ApplyEntry(E entry)
     }
-    class Log["Log&lt;E, S: Snapshot&lt;E&gt;&gt;"] {
+    class Log["Log&lt;E, S&gt;"] {
+        + Append(E entry)
+        + Latest() S
+        + IndexBeforeFirst() Index
+        + IndexAfterLast() Index
+        + HasEntryAt(Index index) bool
+        + GetEntryAt(Index index) Maybe~E~
+        + GetEntryLatest() Maybe&lt;&lpar;E, Index&rpar;&gt;
+        + NewCheckpointAt(Index index) Checkpoint
+        + TruncateAt(Index index)
     }
-    Log *-- Snapshot
+
+    Log o-- Snapshot
+
+    class Index
+    class Checkpoint~S~ {
+        + Index() Index
+        + Data() S
+        + AdvanceTo(Index index)
+        + Close()
+    }
+
+    Log *-- Checkpoint
+
+    Log -- Index
 
