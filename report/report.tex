@@ -405,8 +405,37 @@ state always reflectscommitted, majority-replicated updates.
 \mmdfigure{log-diagram}{Log UML}
 \mmdfigure{log-diagram-structure}{Log structure}
 
-\todo[inline]{talk about log}
-\todo[inline]{finish log diagram}
+We opt to implement more general, generic log API which is suitable for our use case,
+and then build the specific functionality we need on top of that.
+Our \texttt{Log} consists of entries, snapshots, and checkpoints.
+\subsubsection{Interfaces}
+To make Log work with one's data types, a corresponding \textit{Entry} type must be created and the \textit{Snapshot} interface must be implemented.
+
+An \textit{Entry} is a single element in the log, in other words, it is an object representing a single modification.
+Entries can be appended to the end of the log with \texttt{log.Append(entry)} and accessed with either \texttt{log.GetEntryAt(index)} or \texttt{log.GetEntryLatest()}.
+There is no actual interface corresponding to \textit{Entry}, rather, it is whatever type is accepted by the \textit{Snapshot}'s \texttt{Append} method (see below).
+
+A \textit{Snapshot} represents the full state of the system at a given entry in the log.
+Data types implementing the \texttt{Snapshot} interface need only provide a \texttt{Clone()} method, and a \texttt{Append(entry)} method which makes the corresponding change to itself in-place.
+
+\subsubsection{Log Functionality}
+Logs track two primary snapshots: a \textit{head snapshot} representing the state before any changes were made, and a \textit{tail snapshot} representing the state after all changes have been made.
+When an entry is appended to the log, as well as adding the entry to its internal list of entries, the log also applies the entry to its tail snapshot.
+
+Keeping both snapshots allows us to roll back certain log entries if necessary without storing the state at every entry,
+but still allowing for $O(1)$ access to the current state.
+\subsubsection{Checkpoints}
+In practice, we do not only care about tracking of (and efficient access to) the state at the end of the log,
+we also need to get those same things for the point partway through the which has definitely been committed.
+
+To this end, we implement a system of \textit{Checkpoints}, in which a \textit{Checkpoint}:
+\begin{itemize}
+    \item Sits at some logical point along the log. (Which is to say that it either sits at an index corresponding to an entry already in the log, or else sits at the logical position at the start of the log, before all entries.)
+    \item Can be advanced from its current position to a later position in the log. (Checkpoints \textbf{cannot} be moved backwards)
+    \item Tracks an additional \textit{Snapshot} at its position, providing the user $O(1)$ access to the state at its position, as well as providing the log a more recent spot from which to begin re-creating the tail snapshot when entries are removed.
+    \item Forbids removing its corresponding entry, or any entries before that, from the log.
+\end{itemize}
+
 
 \section{Evaluation}
 \subsection {Approach Evaluation}
@@ -690,7 +719,7 @@ This ensures tht notifications are triggered strictly on committed history and t
 \texttt{connectToPeers} creates long-lived gRPC client stubs
 (\texttt{raftpb.ElectionClient}) to all peers listed in \texttt{peers: map[NodeId]string}.
 These stubs are stored in \texttt{s.peerConns}. 
-Derp.
+Derp.\todo{}
 
 \section{Demonstration}
 \todo[inline]{Demonstration section}
@@ -757,7 +786,7 @@ $L$: \texttt{SetData("/n", "x")} then \texttt{SetData("/n", "y")}.
 $C_4$ reads \texttt{GetData("/n")} from $F_1$, migrates, then continues reading on $F_2$.
 
 \textbf{Expected Result:} No backwards reads: after observing ``y'' on $F_1$, reads on 
-$F_2$ never return ``x''. Followers must not serve ilder states than those already observed.
+$F_2$ never return ``x''. Followers must not serve older states than those already observed.
 
 \subsection{Cross-Node Consistency}
 \subsubsection{Test 5: Writes on Leader, Reads on All Nodes}
