@@ -4,6 +4,7 @@ import asyncio
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
+from importlib.resources import is_resource
 from grpc import ChannelConnectivity
 import io
 from ipaddress import IPv4Address, IPv4Network
@@ -126,6 +127,7 @@ class NodeContainer:
     subnet_ip: IPv4Address
     subnet_port: int
     container: 'DockerContainer'
+    _needs_full_unpartition: bool
 
     @property
     def address(self) -> str:
@@ -139,6 +141,7 @@ class NodeContainer:
         node.mm_id = num + 1
         node.host_ip = config.host_ip
         node.host_port = config.base_host_port + num
+        node._needs_full_unpartition = False
         # node.subnet_port = 9000 + node.mm_id
         if config.use_docker_network:
             node.subnet_ip = config.network_subnet[num + config.network_subnet_skipfirst]
@@ -217,6 +220,9 @@ class NodeContainer:
 
     async def _start(self):
         await self.container.start()
+        if self._needs_full_unpartition:
+            await self._fully_unpartition()
+            self._needs_full_unpartition = False
         await self.__wait_for_start()
 
     async def __wait_for_start(self) -> None:
@@ -243,9 +249,12 @@ class NodeContainer:
     def _stop(self) -> Coroutine[Any, Any, None]:
         return self.__stop()
 
+    async def is_running(self) -> bool:
+        return (await self.container.show())['State']['Running']
+
     async def __stop(self) -> None:
         config = config_var.get()
-        if (await self.container.show())['State']['Running']:
+        if await self.is_running():
             if config.graceful_stop_containers:
                 await self.container.stop()
             else:
@@ -263,6 +272,7 @@ class NodeContainer:
                 nodes.append(NodeApi(container))
             cluster = _setup_cluster_config(nodes)
             for node in nodes:
+                node.container._needs_full_unpartition = True
                 _ = await node.container.container.put_archive('/', cluster)
             if start:
                 for node in nodes:
@@ -276,7 +286,13 @@ class NodeContainer:
         execute: Exec = await self.container.exec(cmd=cmd, privileged=privileged)
         async with execute.start(detach=False) as stream:
             out = await stream.read_out()
+        if out != None:
+            print(out)
         return execute
+
+    async def _fully_unpartition(self) -> None:
+        await self._exec('iptables', '--flush', privileged=True)
+        await self._exec('iptables', '--delete-chain', privileged=True)
 
 
 
@@ -290,12 +306,16 @@ class NodeApi:
     def __init__(self, container: NodeContainer) -> None:
         self.container = container
 
+    async def revive(self) -> None:
+        await self.container._start()
+
     async def kill(self) -> None:
         await self.container._stop()
 
     # TODO give those params actual names
     def _iptables_exec(self, other: 'NodeApi', foo: str, bar: str) -> Awaitable[Exec]:
-        return self.container._exec('iptables', foo, bar, '--source', str(other.container.subnet_ip), '--jump', 'DROP', privileged=True)
+        for proto in ['tcp', 'udp']:
+            return self.container._exec('iptables', foo, bar, '-p', proto, '--source', str(other.container.subnet_ip), '--source-port', str(other.container.subnet_port), '--destination-port', str(self.container.subnet_port), '--jump', 'DROP', privileged=True)
 
     async def create_partition(self, other: 'NodeApi') -> None:
         # TODO check to make sure commands actually ran successfully
@@ -316,8 +336,13 @@ class NodeApi:
             return await client._get_leaderinfo()
 
     async def is_leader(self) -> bool:
+        if not await self.is_running():
+            return False
         async with start_client(self) as client:
             return await client.is_leader()
+
+    async def is_running(self) -> bool:
+        return await self.container.is_running()
 
 class NodeClusterApi:
     nodes: list[NodeApi]
@@ -332,28 +357,23 @@ class NodeClusterApi:
     def __iter__(self):
         return iter(self.nodes)
 
+    def __getitem__(self, idx: int) -> NodeApi:
+        return self.nodes.__getitem__(idx)
+
     async def wait_for_election(self) -> tuple[NodeApi, list[NodeApi]]:
         """
         wait for an election to have occurred. returns the elected leader.
         """
         config = config_var.get()
         while True:
-            # poll all nodes and only listen to the first one to respond.
-            # this way we'll still get a response if a given node was killed
-            responded, pending = await asyncio.wait(
-                [asyncio.create_task(n._get_leaderinfo()) for n in self.nodes],
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            info = next(iter(responded)).result()
-            for task in pending:
-                task.cancel()
-            if info.leader_id == 0:
+            responses = await asyncio.gather(*[n.is_leader() for n in self.nodes])
+            if not any(responses):
                 await asyncio.sleep(config.alivetest_retry_delay)
             else:
                 leader = None
                 followers = list[NodeApi]()
-                for n in self.nodes:
-                    if n.container.mm_id == info.leader_id:
+                for (n, r) in zip(self.nodes, responses):
+                    if r:
                         leader = n
                     else:
                         followers.append(n)
