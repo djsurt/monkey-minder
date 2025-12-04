@@ -45,6 +45,12 @@
 \end{figure}%
 }
 
+\ifx\mmCfgNofigures\undefined
+\else
+    \renewcommand{\mmdfigure}[2]{}
+    \renewcommand{\mmdfiguretodo}[2]{}
+\fi
+
 \begin{document}
 
 % title stuff
