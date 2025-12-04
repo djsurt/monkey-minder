@@ -5,10 +5,17 @@ DIAGRAMS = $(wildcard *.mmd)
 COMPILED_DIAGRAMS = $(addsuffix .pdf, $(DIAGRAMS))
 
 report.pdf: $(COMPILED_DIAGRAMS) report.tex
-	pdflatex -interaction nonstopmode report.tex
+	latexmk -pdf -pdflatex="pdflatex -interaction nonstopmode" report.tex
 
+report-draft.pdf: $(COMPILED_DIAGRAMS) report.tex
+	latexmk -pdf -pdflatex="pdflatex -interaction nonstopmode" -jobname=report-draft -usepretex="\def\mmCfgTodos{}" report.tex
 
-.PHONY: clean
+.PHONY: clean clean-diagrams clean-latex
 
-clean:
-	-rm report.aux report.log report.out report.pdf $(COMPILED_DIAGRAMS)
+clean-report:
+	-rm report.aux report.log report.out report.pdf
+
+clean-diagrams:
+	-rm $(COMPILED_DIAGRAMS)
+
+clean: clean-report clean-diagrams

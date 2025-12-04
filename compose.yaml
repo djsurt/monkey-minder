@@ -67,7 +67,7 @@ services:
         - path: ./report/
           action: sync+exec
           exec:
-            command: make report.pdf
+            command: make report.pdf report-draft.pdf
           include:
             - "*.tex"
             - "*.mmd"
