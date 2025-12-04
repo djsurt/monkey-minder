@@ -172,7 +172,7 @@ We expose our service via gRPC with Protocol Buffers, which provides a language-
 platform-agnostic interface for clients to interact between clients and servers. The Raft
 server implements the \texttt{RaftServer} gRPC service and uses generated stubs on both the 
 server and client side, allowing future clients to be written in any language supported by
-gRPC without changing the core consensus implementation.[Have some sort of citation maybe].
+gRPC without changing the core consensus implementation.\todo{Have some sort of citation maybe}
 
 \textbf{Openness}:
 The system is designed as a set of composable modules: the replicated log (\texttt{Log}), the
@@ -405,8 +405,37 @@ state always reflectscommitted, majority-replicated updates.
 \mmdfigure{log-diagram}{Log UML}
 \mmdfigure{log-diagram-structure}{Log structure}
 
-\todo[inline]{talk about log}
-\todo[inline]{finish log diagram}
+We opt to implement more general, generic log API which is suitable for our use case,
+and then build the specific functionality we need on top of that.
+Our \texttt{Log} consists of entries, snapshots, and checkpoints.
+\subsubsection{Interfaces}
+To make Log work with one's data types, a corresponding \textit{Entry} type must be created and the \textit{Snapshot} interface must be implemented.
+
+An \textit{Entry} is a single element in the log, in other words, it is an object representing a single modification.
+Entries can be appended to the end of the log with \texttt{log.Append(entry)} and accessed with either \texttt{log.GetEntryAt(index)} or \texttt{log.GetEntryLatest()}.
+There is no actual interface corresponding to \textit{Entry}, rather, it is whatever type is accepted by the \textit{Snapshot}'s \texttt{Append} method (see below).
+
+A \textit{Snapshot} represents the full state of the system at a given entry in the log.
+Data types implementing the \texttt{Snapshot} interface need only provide a \texttt{Clone()} method, and a \texttt{Append(entry)} method which makes the corresponding change to itself in-place.
+
+\subsubsection{Log Functionality}
+Logs track two primary snapshots: a \textit{head snapshot} representing the state before any changes were made, and a \textit{tail snapshot} representing the state after all changes have been made.
+When an entry is appended to the log, as well as adding the entry to its internal list of entries, the log also applies the entry to its tail snapshot.
+
+Keeping both snapshots allows us to roll back certain log entries if necessary without storing the state at every entry,
+but still allowing for $O(1)$ access to the current state.
+\subsubsection{Checkpoints}
+In practice, we do not only care about tracking of (and efficient access to) the state at the end of the log,
+we also need to get those same things for the point partway through the which has definitely been committed.
+
+To this end, we implement a system of \textit{Checkpoints}, in which a \textit{Checkpoint}:
+\begin{itemize}
+    \item Sits at some logical point along the log. (Which is to say that it either sits at an index corresponding to an entry already in the log, or else sits at the logical position at the start of the log, before all entries.)
+    \item Can be advanced from its current position to a later position in the log. (Checkpoints \textbf{cannot} be moved backwards)
+    \item Tracks an additional \textit{Snapshot} at its position, providing the user $O(1)$ access to the state at its position, as well as providing the log a more recent spot from which to begin re-creating the tail snapshot when entries are removed.
+    \item Forbids removing its corresponding entry, or any entries before that, from the log.
+\end{itemize}
+
 
 \section{Evaluation}
 \subsection {Approach Evaluation}
@@ -677,20 +706,19 @@ Because checkpoints are tied to the snapshot-aware log, followers recovering fro
 and the commit path has a clear separation from the uncommitted tail fo the log.
 
 \subsection{Watch Manager Implementation}
-Our watch system is implemented by the \texttt{WatchManager} type, which tracks a slice of pending watches guarded 
-by a mutex. Each watch consists of a predicate over committed log entries and a completion channel that is signaled exactly
-once.
+Our watch system is implemented by the \texttt{WatchManager}, which tracks a list of pending \texttt{Watch}es.
+Each \texttt{Watch} consists of a \texttt{predicate} function $\left(\texttt{LogEntry}, \texttt{Index}\right) \rightarrow \texttt{bool}$
+and a channel to be notified when the watch has occurred.
 
-When a leader commits a new log entry, it calls \texttt{wacthes.SubmitEntry(entry, index)}. The watch manager acquires the mutex
-and uses \texttt{slices.DeleteFunc} to remove all watches whose predicate returns true for the given entry and indexm sending a notification 
-on the corresponding channel. Watches that do not match remain in the list and will eventually be evaluated against future commits.
-This ensures tht notifications are triggered strictly on committed history and that each watch is fired at most once.
+When a leader commits a new log entry, it passes that entry, along with that entry's index, to the \texttt{WatchManager}.
+The \texttt{WatchManager} then checks all of its pending watches,
+and any watches whose predicates match this new entry will be removed from the list and their corresponding channels will be notified.
 
 \subsection{Transport and Peer Topology}
 \texttt{connectToPeers} creates long-lived gRPC client stubs
 (\texttt{raftpb.ElectionClient}) to all peers listed in \texttt{peers: map[NodeId]string}.
 These stubs are stored in \texttt{s.peerConns}. 
-Derp.
+Derp.\todo{}
 
 \section{Demonstration}
 \todo[inline]{Demonstration section}
@@ -705,9 +733,7 @@ To validate linearizability, monotonic reads, cross-node consistency, and failur
 we designed a set of test cases across 3 to 5 node clusers. Each test is described with its setup, actions, observations,
 and expected results.
 
-\subsection{Linearizable Writes}
-
-\subsubsection{Test 1: Single-Leader Sequential Create/Update}
+\subsection{Linearizable Writes: Single-Leader Sequential Create/Update}
 \textbf{Setup:} Three-node cluster. A Leader $L$ is elected. A client $C_1$ is connected to $L$.
 
 \textbf{Actions:}
@@ -721,7 +747,7 @@ and expected results.
 \textbf{Expected Result:} Reads return \emph{v1}, then \emph{v2}, then \emph{v3} in strict order.
 No reordering, skipping or stale values.
 
-\subsubsection{Test 2: Concurrent Writes Ordered by Leader}
+\subsection{Linearizable Writes: Concurrent Writes Ordered by Leader}
 
 \textbf{Setup:} Three-node cluster. Clients $C_1$ and $C_2$ connected to Leader $L$.
 
@@ -735,94 +761,131 @@ $C_2$, and follower $F$.
 serialization order (either $A \rightarrow B$ or $B \rightarrow A$).
 No interleaving or non-linearizable outcomes.
 
-\subsection{Monotonic Reads}
+% \subsection{Monotonic Reads}
+% \subsubsection{Test 3: Read-Only Client Monotonicity}
+%
+% \textbf{Setup:} Client $C_3$ reads from $F$. Leader $L$ performs updates.
+%
+% \textbf{Actions:}
+% $L$: \texttt{SetData("/m", "1")} then \texttt{SetData("/m", "2")}.
+% $C_3$ polls \texttt{GetData("/m)} every 100ms.
+%
+% \textbf{Expected Result:} Observed values are monotonic: once $C_3$ sees ``2'', it never
+% returns ``1'' again. Temporary lag is allowed but regressions are not.
 
-\subsubsection{Test 3: Read-Only Client Monotonicity}
+% \subsubsection{Test 4: Monotonic Reads Across Session Migration}
+% 
+% \textbf{Setup:} Client $C_4$ initially connected to follower $F_1$. Migrates mid-run to $F_2$.
+% 
+% \textbf{Actions:}
+% $L$: \texttt{SetData("/n", "x")} then \texttt{SetData("/n", "y")}.
+% $C_4$ reads \texttt{GetData("/n")} from $F_1$, migrates, then continues reading on $F_2$.
+% 
+% \textbf{Expected Result:} No backwards reads: after observing ``y'' on $F_1$, reads on 
+% $F_2$ never return ``x''. Followers must not serve older states than those already observed.
 
-\textbf{Setup:} Client $C_3$ reads from $F$. Leader $L$ performs updates.
+% TODO
+% \subsection{Cross-Node Consistency}
+% \subsubsection{Test 5: Writes on Leader, Reads on All Nodes}
+% 
+% \textbf{Setup:} Five-node cluster. Clients $C_1\dots C5$ connected to different nodes.
+% 
+% \textbf{Actions:} Leader performs:
+% \begin{enumerate}
+%     \item \texttt{Create("/k"),"alpha"}.
+%     \item \texttt{SetData("/k", "beta")}
+% \end{enumerate}
+% 
+% \textbf{Observation:} All clients repeatedly read \texttt{GetData("/k")} for 5 seconds.
+% 
+% \textbf{Expected Result:} All nodes converge to ``beta''. No node returns a value outside the committed sequence.
+% Temporary follower lag is acceptable.
+
+\subsection{Leader Election: Killed Leader Causes Election}
+
+\textbf{Setup:} Five-node cluster.
 
 \textbf{Actions:}
-$L$: \texttt{SetData("/m", "1")} then \texttt{SetData("/m", "2")}.
-$C_3$ polls \texttt{GetData("/m)} every 100ms.
-
-\textbf{Expected Result:} Observed values are monotonic: once $C_3$ sees ``2'', it never
-returns ``1'' again. Temporary lag is allowed but regressions are not.
-
-\subsubsection{Test 4: Monotonic Reads Across Session Migration}
-
-\textbf{Setup:} Client $C_4$ initially connected to follower $F_1$. Migrates mid-run to $F_2$.
-
-\textbf{Actions:}
-$L$: \texttt{SetData("/n", "x")} then \texttt{SetData("/n", "y")}.
-$C_4$ reads \texttt{GetData("/n")} from $F_1$, migrates, then continues reading on $F_2$.
-
-\textbf{Expected Result:} No backwards reads: after observing ``y'' on $F_1$, reads on 
-$F_2$ never return ``x''. Followers must not serve ilder states than those already observed.
-
-\subsection{Cross-Node Consistency}
-\subsubsection{Test 5: Writes on Leader, Reads on All Nodes}
-
-\textbf{Setup:} Five-node cluster. Clients $C_1\dots C5$ connected to different nodes.
-
-\textbf{Actions:} Leader performs:
 \begin{enumerate}
-    \item \texttt{Create("/k"),"alpha"}.
-    \item \texttt{SetData("/k", "beta")}
+    \item Start all five nodes.
+    \item Wait for initial election to occur.
+    \item Kill current leader node.
+    \item Wait some time for election timeouts to occur.
+    \item After that time has passed, there should be a new leader.
 \end{enumerate}
 
-\textbf{Observation:} All clients repeatedly read \texttt{GetData("/k")} for 5 seconds.
+\todo[inline]{observation, expected results}
 
-\textbf{Expected Result:} All nodes converge to ``beta''. No node returns a value outside the committed sequence.
-Temporary follower lag is acceptable.
+\subsection{Leader Election: Restarting Enough Nodes Unblocks Election}
 
-\subsubsection{Failure Recovery}
-\subsubsection{Test 6: Leader Crash After Append, Before Commit}
-
-\textbf{Setup:} Three-node cluster. Followers $F_1$, $F_2$.
+\textbf{Setup:} Five-node cluster.
 
 \textbf{Actions:}
-Leader $L$ appends \texttt{SetData("/r", "new")} then crashes \emph{before} receiving a quorum ACK.
+\begin{enumerate}
+    \item Start all five nodes.
+    \item Wait for initial election to occur.
+    \item Kill current leader node and two additional follower nodes, leaving a total of $2$ of $5$ nodes alive.
+    \item Wait some to see if a leader is elected.
+    \item Restart one of the killed followers, bringing us back up to $3$ of $5$ nodes alive.
+    \item Wait some additional time, and a leader should now actually be elected.
+\end{enumerate}
 
-\textbf{Observation:} Reads on $F_1$ and $F_2$ via \texttt{GetData("/r)}.
+\textbf{Observation:} On step 4, no leader should ever be elected. On step 6, a leader should be elected.
 
-\textbf{Expected Result:} Value remains the old value. The uncommitted write is discarded after new leader election. No 
-partial visibility.
+\textbf{Expected Result:} No leader is elected when there is not a majority alive.
+Once there is a majority alive, there should eventually be a leader elected.
 
-\subsection{Quorum and Availability}
-\subsubsection{Test 7: Minority Partition Unavailable for Writes}
 
-\textbf{Setup:} Five-node cluster partitioned into 3-node majority and 2-node minority.  
+% \subsubsection{Failure Recovery}
+% \subsubsection{Test 6: Leader Crash After Append, Before Commit}
+% 
+% \textbf{Setup:} Three-node cluster. Followers $F_1$, $F_2$.
+% 
+% \textbf{Actions:}
+% Leader $L$ appends \texttt{SetData("/r", "new")} then crashes \emph{before} receiving a quorum ACK.
+% 
+% \textbf{Observation:} Reads on $F_1$ and $F_2$ via \texttt{GetData("/r)}.
+% 
+% \textbf{Expected Result:} Value remains the old value. The uncommitted write is discarded after new leader election. No 
+% partial visibility.
 
-\textbf{Actions:} Clients attempt writes in both partitions.  
+% TODO
+% \subsection{Quorum and Availability}
+% \subsubsection{Test 7: Minority Partition Unavailable for Writes}
+% 
+% \textbf{Setup:} Five-node cluster partitioned into 3-node majority and 2-node minority.  
+% 
+% \textbf{Actions:} Clients attempt writes in both partitions.  
+% 
+% \textbf{Expected Result:}  
+% \begin{itemize}
+%   \item Majority partition continues serving writes normally.
+%   \item Minority partition rejects or blocks writes.
+%   \item Minority reads may lag or fail.
+%   \item After healing, minority catches up from leader log.
+% \end{itemize}
 
-\textbf{Expected Result:}  
-\begin{itemize}
-  \item Majority partition continues serving writes normally.
-  \item Minority partition rejects or blocks writes.
-  \item Minority reads may lag or fail.
-  \item After healing, minority catches up from leader log.
-\end{itemize}
+% TODO
+% \subsubsection{Test 8: Node Join and Catch-Up}
+% 
+% \textbf{Setup:} Three nodes perform 100 sequential updates on \texttt{/z}.
+% 
+% \textbf{Actions:} Add new node $N_4$, allow it to synchronize.
+% 
+% \textbf{Expected Result:} After catch-up, $N_4$ returns the latest committed value.
+% Log backfull converges without divergence.
 
-\subsubsection{Test 8: Node Join and Catch-Up}
-
-\textbf{Setup:} Three nodes perform 100 sequential updates on \texttt{/z}.
-
-\textbf{Actions:} Add new node $N_4$, allow it to synchronize.
-
-\textbf{Expected Result:} After catch-up, $N_4$ returns the latest committed value.
-Log backfull converges without divergence.
-
-\subsection{Watches and Notifications}
-\subsubsection{Test 9: Watch Triggers on Immediate Children}
-AppendEntries Path (Follower \& Leader, \S5.3)
-\textbf{Setup:} Client registers a watch via \texttt{GetChildren("/p", watchChan)}.
-
-\textbf{Actions:}
-Leader creates \texttt{/p/a}, then \texttt{/p/a/b}, then deletes \texttt{/p}.
-
-\textbf{Expected Result:}
-Notifications fire for \texttt{/p/a} (child created) and \texttt{/p} (deleted).
-No notification for grandchild \texttt{/p/a/b}, consistent with Zookeeper semantics.
+% \subsection{Watches and Notifications}
+% \subsubsection{Test 9: Watch Triggers on Immediate Children}
+% AppendEntries Path (Follower \& Leader, \S5.3)
+% \textbf{Setup:} Client registers a watch via \texttt{GetChildren("/p", watchChan)}.
+% 
+% \textbf{Actions:}
+% Leader creates \texttt{/p/a}, then \texttt{/p/a/b}, then deletes \texttt{/p}.
+% 
+% \textbf{Expected Result:}
+% Notifications fire for \texttt{/p/a} (child created) and \texttt{/p} (deleted).
+% No notification for grandchild \texttt{/p/a/b}, consistent with Zookeeper semantics.
 
 \subsection{Operational Parameters}
 \begin{itemize}

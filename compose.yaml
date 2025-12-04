@@ -27,7 +27,9 @@ services:
         RUN make protos-go
         RUN go build -o /build-out/server ./server/
         # copy just our final executable to a new container to minimize size
-        FROM scratch
+        # FROM scratch
+        FROM alpine:3.22
+        RUN apk add iptables
         COPY --from=builder /build-out/server /bin/server
         CMD ["/bin/server"]
   dev:
