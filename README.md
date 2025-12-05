@@ -20,6 +20,7 @@ docker compose build server
 ```
 
 ## running tests
+Make sure to build the protobuf files before testing
 see [tester/README.md](tester/README.md)
 
 ## run linter
