@@ -67,8 +67,8 @@ ENV PATH="${PATH}:/opt/texlive/bin/x86_64-linuxmusl"
 ################################################################################
 
 # basic latex deps
-RUN tlmgr install scheme-minimal latex-bin latex-tools-dev latexmk
+RUN tlmgr install scheme-minimal latex-bin latex-tools-dev latexmk biber
 # our latex deps
-RUN tlmgr install babel ieeetran hyperref etoolbox l3packages lipsum epstopdf-pkg todonotes
+RUN tlmgr install babel ieeetran hyperref etoolbox l3packages lipsum epstopdf-pkg todonotes biblatex biblatex-ieee
 
 RUN apk add make
