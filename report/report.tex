@@ -102,7 +102,7 @@ By building our project within these parameters, we hoped to gain practical
 experience navigating the unique challenges posed by distributed systems.
 
 \section{Challenges Addressed}
-While building our Zookeeper-like service, we had to address multiple fundamental distributed system challenges.
+While building our ZooKeeper-like service, we had to address multiple fundamental distributed system challenges.
 These challenges shaped the requirements and constraints of our system and influenced the design decisions described in
 detail in the Design section.
 
@@ -147,7 +147,7 @@ because all of our service APIs are defined in the Protobuf format, additional A
 without much modification to the consensus layer.
 
 \section{Prior Art}
-ZooKeeper achieves consensus through the Zookeeper Atomic Broadcast (Zab)
+ZooKeeper achieves consensus through the ZooKeeper Atomic Broadcast (Zab)
 protocol, which is a leader-based atomic broadcast system designed to ensure
 consistent state replication across nodes [1]. Zab shares some conceptual similarities
 with the Raft algorithm, such as leader election and log replication, but was developed
@@ -303,14 +303,14 @@ for the Tree data store.
 
 \subsubsection{Watch Manager}
 
-The system provides lightweight watch functionality similar to Zookeeper's. Each watch consists of a predicate
+The system provides lightweight watch functionality similar to ZooKeeper's. Each watch consists of a predicate
 tested against committed log entries. When a committed entry satisfies a watch predicate, the associated callback
 channel is fired and the watch is removed. Watches are checked during leader commit processing. This ensures that
 notifications reflect globally committed state.
 
 \subsubsection{Tree State Machine}
 The state machine that is replicated by Raft is a heirarchical \texttt{Tree} structure that closely
-models Zookeeper's znode abstraction. Each node in the tree has a name, associated data, a version number, and a set of children.
+models ZooKeeper's znode abstraction. Each node in the tree has a name, associated data, a version number, and a set of children.
 Operations such as \texttt{Create}, \texttt{Update}, and \texttt{Delete} modify the tree deterministically.
 Because these operations are deterministic and their arguments are captured precisely in \texttt{LogEntry} values,
 every replica applying the same sequence of committed log entries converges to the same logical state.
@@ -525,7 +525,7 @@ The client layer provides several endpoints for interacting with the system. The
 
 
 \subsection{Consensus Layer}
-The consensus layer is built on the Raft protocol, replacing Zookeeper's Zab protocol. It operates with three distinct node states: Follower, Leader, and Candidate.
+The consensus layer is built on the Raft protocol, replacing ZooKeeper's Zab protocol. It operates with three distinct node states: Follower, Leader, and Candidate.
 Each node runs a state machine that delegates tasks to the appropriate handler based on its current role in the cluster.
 
 \subsubsection{Process Models and Types}
@@ -897,7 +897,7 @@ Once there is a majority alive, there should eventually be a leader elected.
 % 
 % \textbf{Expected Result:}
 % Notifications fire for \texttt{/p/a} (child created) and \texttt{/p} (deleted).
-% No notification for grandchild \texttt{/p/a/b}, consistent with Zookeeper semantics.
+% No notification for grandchild \texttt{/p/a/b}, consistent with ZooKeeper semantics.
 
 \subsection{Operational Parameters}
 \begin{itemize}
