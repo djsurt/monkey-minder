@@ -26,6 +26,22 @@
 % via https://stackoverflow.com/a/123184/8762161
 \newlength{\mmdfigureWidthTmp}
 
+% TODO(amgg): should just make mmdfigure call this
+\newcommand{\easyfigure}[2]{\begin{figure}[h]%
+    % get the width of the figure unscaled %
+    \settowidth{\mmdfigureWidthTmp}{\includegraphics{#1}}%
+    % give the diagrams a constant scale down regardless of their size. %
+    % (based on a rough conversion between their font sizes, assuming i'm correct about those. -amgg) %
+    \setlength{\mmdfigureWidthTmp}{\mmdfigureWidthTmp*10/16}%
+    % scale that down further but only if necissary to not exceed text width %
+    % (note that we use columnwidth here, not textwidth, since we're in a 2-column layout) %
+    \setlength{\mmdfigureWidthTmp}{\minof{\mmdfigureWidthTmp}{\columnwidth}}%
+    \centering%
+    \includegraphics[width=\mmdfigureWidthTmp]{#1}%
+    \caption{#2}%
+\end{figure}%
+}
+
 \newcommand{\mmdfigure}[2]{\begin{figure}[h]%
     % get the width of the figure unscaled %
     \settowidth{\mmdfigureWidthTmp}{\includegraphics{#1.mmd.pdf}}%
