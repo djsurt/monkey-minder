@@ -8,6 +8,7 @@ ARG PROTOC_GEN_GO_VERSION=1.36.10
 ARG PROTOC_GEN_GO_GRPC_VERSION=1.5.1
 
 RUN apk add git bash protoc make curl uv
+RUN apk add --no-cache python3 py3-pip
 RUN uv tool install grpcio-tools
 ENV PATH="$PATH:/root/.local/bin/"
 
