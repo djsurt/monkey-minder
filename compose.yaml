@@ -69,10 +69,33 @@ services:
         - path: ./report/
           action: sync+exec
           exec:
-            command: make report.pdf report-draft.pdf
+            command: make report.pdf
           include:
-            - "*.tex"
-            - "*.mmd"
+            - "**/*.tex"
+            - "**/*.mmd"
+          target: /dev/null
+        - path: ./report/
+          action: rebuild
+          include:
+            - "Dockerfile"
+  dev-report-draft:
+    platform: linux/amd64
+    profiles: [dev-all]
+    build:
+      dockerfile: ./report/Dockerfile
+    volumes:
+      - src:/src
+    working_dir: /src/report
+    command: tail -f /dev/null
+    develop:
+      watch:
+        - path: ./report/
+          action: sync+exec
+          exec:
+            command: make report-draft.pdf
+          include:
+            - "**/*.tex"
+            - "**/*.mmd"
           target: /dev/null
         - path: ./report/
           action: rebuild
