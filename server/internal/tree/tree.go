@@ -2,7 +2,9 @@ package tree
 
 import (
 	"errors"
+	"fmt"
 	"path"
+	"sort"
 	"strings"
 
 	raftpb "github.com/djsurt/monkey-minder/server/proto/raft"
@@ -180,5 +182,32 @@ func (t *Tree) ApplyEntry(entry *raftpb.LogEntry) error {
 		return t.Delete(entry.GetTargetPath())
 	default:
 		panic("should be unreachable (modification type must have been invalid)")
+	}
+}
+
+func (t *Tree) DebugDumpState() string {
+	var b strings.Builder
+	t.root.debugDumpState(&b, 0)
+	return b.String()
+}
+
+func (node *ZNode) debugDumpState(b *strings.Builder, indent int) {
+	b.WriteString(fmt.Sprintf("%v (v%03d) = %#v", node.Name, node.Version, node.Data))
+	b.WriteString("\n")
+	childIndent := indent + 1
+	childKeysOrdered := make([]string, len(node.Children))
+	for k := range node.Children {
+		childKeysOrdered = append(childKeysOrdered, k)
+	}
+	sort.Strings(childKeysOrdered)
+	for _, k := range childKeysOrdered {
+		child := node.Children[k]
+		if child == nil {
+			continue
+		}
+		for range childIndent {
+			b.WriteString("  ")
+		}
+		child.debugDumpState(b, childIndent)
 	}
 }

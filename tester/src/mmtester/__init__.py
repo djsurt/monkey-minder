@@ -56,6 +56,7 @@ class Config:
     alivetest_retry_delay: float = 0.1
     """how many seconds to wait between pings while waiting for a container to start"""
     use_docker_network: bool = True
+    has_iptables: bool = True
 
     def _str_for_container_compare(self) -> str:
         return f'image:{self.network_name!r} network:{self.network_name!r} subnet:{self.network_subnet} skip {self.network_subnet_skipfirst} base port:{self.base_host_port} host ip:{self.host_ip} use docker network:{self.use_docker_network}'
@@ -218,12 +219,13 @@ class NodeContainer:
         assert num not in nodes
         nodes[num] = await NodeContainer._create(num=num, container=container)
 
-    async def _start(self):
+    async def _start(self, wait: bool = True):
         await self.container.start()
         if self._needs_full_unpartition:
             await self._fully_unpartition()
             self._needs_full_unpartition = False
-        await self.__wait_for_start()
+        if wait:
+            await self.__wait_for_start()
 
     async def __wait_for_start(self) -> None:
         retry_delay = config_var.get().alivetest_retry_delay
@@ -263,6 +265,7 @@ class NodeContainer:
     @classmethod
     @asynccontextmanager
     async def start_group_of_n(cls, n_nodes: int, start: bool) -> AsyncIterator['NodeClusterApi']:
+        conf = config_var.get()
         nodes = list[NodeApi]()
 
         try:
@@ -272,7 +275,7 @@ class NodeContainer:
                 nodes.append(NodeApi(container))
             cluster = _setup_cluster_config(nodes)
             for node in nodes:
-                node.container._needs_full_unpartition = True
+                node.container._needs_full_unpartition = conf.has_iptables
                 _ = await node.container.container.put_archive('/', cluster)
             if start:
                 for node in nodes:
@@ -306,16 +309,16 @@ class NodeApi:
     def __init__(self, container: NodeContainer) -> None:
         self.container = container
 
-    async def revive(self) -> None:
-        await self.container._start()
+    async def revive(self, wait: bool = True) -> None:
+        await self.container._start(wait=wait)
 
     async def kill(self) -> None:
         await self.container._stop()
 
     # TODO give those params actual names
-    def _iptables_exec(self, other: 'NodeApi', foo: str, bar: str) -> Awaitable[Exec]:
+    async def _iptables_exec(self, other: 'NodeApi', foo: str, bar: str):
         for proto in ['tcp', 'udp']:
-            return self.container._exec('iptables', foo, bar, '-p', proto, '--source', str(other.container.subnet_ip), '--source-port', str(other.container.subnet_port), '--destination-port', str(self.container.subnet_port), '--jump', 'DROP', privileged=True)
+            await self.container._exec('iptables', foo, bar, '-p', proto, '--source', str(other.container.subnet_ip), '--source-port', str(other.container.subnet_port), '--destination-port', str(self.container.subnet_port), '--jump', 'DROP', privileged=True)
 
     async def create_partition(self, other: 'NodeApi') -> None:
         # TODO check to make sure commands actually ran successfully
@@ -343,6 +346,14 @@ class NodeApi:
 
     async def is_running(self) -> bool:
         return await self.container.is_running()
+
+    async def debugstatedump(self) -> str:
+        if await self.is_running():
+            async with start_client(self) as client:
+                dump = await client._get_dbgstatedump()
+                return dump if dump is not None else "<error fetching debug-only state dump>"
+        else:
+            return "<node is not running>"
 
 class NodeClusterApi:
     nodes: list[NodeApi]
@@ -477,6 +488,10 @@ class ClientApi:
     async def is_leader(self) -> bool:
         return (await self._get_leaderinfo())[1]
 
+    async def _get_dbgstatedump(self) -> str | None:
+        resp = await self._api(ClientRequest(kind=protos.INTERNAL_STATEDUMP, id=self._next_num()))
+        return resp.data if resp.succeeded else None
+
 def start_nodes(n: int, /, *, start=True) -> AbstractAsyncContextManager[NodeClusterApi]:
     return NodeContainer.start_group_of_n(n, start)
 
@@ -500,12 +515,25 @@ def _setup_cluster_config(nodes: list[NodeApi]) -> bytes:
     tardata = f.getvalue()
     return tardata
 
+_NO_CLOSE_CHANNELS = True
+
 @asynccontextmanager
 async def start_client(server: NodeApi, /) -> AsyncIterator[ClientApi]:
     cfg = config_var.get()
-    async with grpc.aio.insecure_channel(f'{server.container.host_ip}:{server.container.host_port}') as channel:
-        try:
-            async with ClientApi(channel) as client:
-                yield client
-        finally:
-            pass
+    # async with grpc.aio.insecure_channel(f'{server.container.host_ip}:{server.container.host_port}', options=[('grpc.keepalive_timeout_ms', 10_000)]) as channel:
+    #     try:
+    #         async with ClientApi(channel) as client:
+    #             yield client
+    #     finally:
+    #         pass
+    channel = grpc.aio.insecure_channel(f'{server.container.host_ip}:{server.container.host_port}', options=[('grpc.keepalive_timeout_ms', 1_000)])
+    try:
+        async with ClientApi(channel) as client:
+            yield client
+    finally:
+        # await channel.close(grace=0)
+        if not _NO_CLOSE_CHANNELS:
+            async def deferred_close():
+                await asyncio.sleep(2.0)
+                await channel.close()
+            asyncio.create_task(deferred_close())

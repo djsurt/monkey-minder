@@ -12,6 +12,7 @@ requires-python = "==3.11.*"
 
 [project.scripts]
 mmtester = "tests:main"
+mm-demo = "mmtester.demo:demo_main"
 
 [tool.mypy]
 disallow_untyped_defs = true
