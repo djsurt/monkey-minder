@@ -14,7 +14,7 @@
   configuration values set in `asyncSetUp`.
 
 # run tests
-to run all of the tests, first make sure that you are in the `tester` directory and then simply run
+to run all of the tests, first make sure that you are in the directory that this `README` is in and then simply run
 ```bash
 uv run mmtester
 ```
