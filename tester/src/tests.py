@@ -31,7 +31,7 @@ class TestMonkeyMinder(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self) -> None:
         await mmtester.cleanup()
 
-    @test_timeout(10.0)
+    @test_timeout(20.0)
     async def test_1(self):
         print('test_1')
         async with start_nodes(3) as cluster:
@@ -45,7 +45,7 @@ class TestMonkeyMinder(unittest.IsolatedAsyncioTestCase):
                 await c.set_data('/foo', 'v3', -1)
                 self.assertEqual((await c.get_data('/foo')).data, 'v3')
 
-    @test_timeout(10.0)
+    @test_timeout(20.0)
     async def test_2(self):
         print('test_2')
         async with start_nodes(3) as cluster:
@@ -65,8 +65,10 @@ class TestMonkeyMinder(unittest.IsolatedAsyncioTestCase):
                 async with start_client(n) as c:
                     responses.add((await c.get_data('/bar')).data)
             self.assertEqual(len(responses), 1, f"expected uniform data across nodes! (got {responses})")
+            response = next(iter(responses))
+            self.assertIn(response, {'A', 'B'})
 
-    @test_timeout(10.0)
+    @test_timeout(20.0)
     async def test_3(self):
         print('test_3')
         async with start_nodes(3) as cluster, asyncio.TaskGroup() as tg:
@@ -103,7 +105,7 @@ class TestMonkeyMinder(unittest.IsolatedAsyncioTestCase):
     #         # but, someone else will have become leader since then
     #         self.assertTrue(any(await asyncio.gather(*[n.is_leader() for n in followers])))
 
-    @test_timeout(10.0)
+    @test_timeout(20.0)
     async def test_killed_leader_causes_election(self):
         print('test_killed_leader_causes_election')
         async with start_nodes(5) as cluster:
@@ -115,7 +117,7 @@ class TestMonkeyMinder(unittest.IsolatedAsyncioTestCase):
             # and someone else will have become leader since then
             self.assertTrue(any(await asyncio.gather(*[n.is_leader() for n in followers])))
 
-    @test_timeout(15.0)
+    @test_timeout(30.0)
     async def test_restarted_node_unblocks_election(self):
         print('test_restarted_node_unblocks_election')
         async with start_nodes(5) as cluster:

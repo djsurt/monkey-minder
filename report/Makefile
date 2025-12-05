@@ -16,7 +16,9 @@ report-nofigures.pdf: $(COMPILED_DIAGRAMS) report.tex
 .PHONY: clean clean-diagrams clean-latex
 
 clean-report:
-	-rm report.aux report.log report.out report.pdf
+	latexmk -C report.tex
+	latexmk -C report.tex -jobname=report-draft
+	latexmk -C report.tex -jobname=report-nofigures
 
 clean-diagrams:
 	-rm $(COMPILED_DIAGRAMS)

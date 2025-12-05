@@ -11,3 +11,7 @@
 /*.fdb_latexmk
 /*.fls
 /*.tdo
+/*.bbl
+/*.bcf
+/*.blg
+/*.run.xml
