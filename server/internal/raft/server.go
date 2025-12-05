@@ -5,7 +5,6 @@ package raft
 import (
 	"context"
 	"fmt"
-	"log"
 	"math/rand"
 	"net"
 	"sync/atomic"
@@ -33,6 +32,18 @@ const (
 	CANDIDATE
 	LEADER
 )
+
+func (state NodeState) Name() string {
+	switch state {
+    case FOLLOWER:
+        return "FOLLOWER"
+    case CANDIDATE:
+        return "CANDIDATE"
+    case LEADER:
+        return "LEADER"
+	}
+	return "<invalid state>"
+}
 
 type RaftServer struct {
 	raftpb.UnimplementedRaftServer
@@ -182,11 +193,15 @@ func (s *RaftServer) connectToPeers() error {
 		client := raftpb.NewRaftClient(conn)
 		peerConns[peer] = client
 
-		mmClient, err := monkeyminder.NewClient(context.Background(), addr)
-		if err != nil {
-			log.Printf("Error creating monkeyminder service connection w/ peer: %v\n", err)
-		}
-		mmConns[peer] = mmClient
+		mmConns[peer] = nil
+
+		// mmClient, err := monkeyminder.NewClient(context.Background(), addr)
+		// // mmClient, err := monkeyminder.NewClientFromConn(context.Background(), conn)
+		// if err != nil {
+		// 	log.Printf("Error creating monkeyminder service connection w/ peer: %v\n", err)
+		// 	return err
+		// }
+		// mmConns[peer] = mmClient
 	}
 
 	s.peerConns = peerConns

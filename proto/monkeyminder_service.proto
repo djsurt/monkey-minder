@@ -13,6 +13,7 @@ enum RequestType {
   SETDATA = 5;
   GETCHILDREN = 6;
   INTERNAL_LEADERCHECK = 7;
+  INTERNAL_STATEDUMP = 8;
 }
 
 

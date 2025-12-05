@@ -12,6 +12,7 @@ import (
 	"github.com/djsurt/monkey-minder/server/internal/monkeyminder"
 	raftpb "github.com/djsurt/monkey-minder/server/proto/raft"
 	"google.golang.org/grpc"
+	mmclient "github.com/djsurt/monkey-minder"
 )
 
 type sessionId uint64
@@ -94,14 +95,24 @@ clientLoop:
 			break clientLoop
 		case request := <-requestChan:
 			log.Printf("Received request: %v\n", request)
-			if request.GetKind() == mmpb.RequestType_INTERNAL_LEADERCHECK {
+			switch request.GetKind() {
+			case mmpb.RequestType_INTERNAL_LEADERCHECK:
 				responseChan <- &mmpb.ServerResponse{
 					Id:               request.GetId(),
 					Succeeded:        true,
 					InternalIsleader: s.leader == s.Id,
 					Version:          uint64(s.leader),
 				}
-			} else {
+			case mmpb.RequestType_INTERNAL_STATEDUMP:
+				summary := fmt.Sprintf("Node %v is a %v\n\tterm: %v\n\tlog: %v entries (%v committed)", s.Id, s.state.Name(), s.term, s.log.LenLogical(), s.commitPoint.Index())
+				curTree := (*s.log.Latest()).Clone()
+				fullStateDump := fmt.Sprintf("%v\n%v", summary, curTree.DebugDumpState())
+				responseChan <- &mmpb.ServerResponse{
+					Id:        request.GetId(),
+					Succeeded: true,
+					Data:      &fullStateDump,
+				}
+			default:
 				s.clientMessagesIncoming <- clientMsg{
 					sessionId: sess.uid,
 					msg:       brokerMessage(request),
@@ -147,6 +158,14 @@ func (s *RaftServer) handleClientMessage(msg clientMsg) {
 			}()
 		} else {
 			leaderClient := s.mmConns[s.leader]
+			if leaderClient == nil {
+				var err error
+				leaderClient, err = mmclient.NewClient(context.Background(), s.peers[s.leader])
+				if err != nil {
+					panic(err) // FIXME
+				}
+				s.mmConns[s.leader] = leaderClient
+			}
 			go func() {
 				response := <-msg.msg.DoLeaderForward(leaderClient)
 				log.Printf("RECEIVED RESPONSE FROM LEADER: %v\n", response)
@@ -234,7 +253,7 @@ func brokerMessage(req *mmpb.ClientRequest) monkeyminder.ClientMessage {
 			WatchMessageCommon:  watchId,
 			Path:                req.GetPath(),
 		}
-	case mmpb.RequestType_INTERNAL_LEADERCHECK:
+	case mmpb.RequestType_INTERNAL_LEADERCHECK, mmpb.RequestType_INTERNAL_STATEDUMP:
 		panic("internal line-skipping request should be handled immediately, not brokered")
 	case mmpb.RequestType_UNSPECIFIED:
 		panic("Unspecified")

@@ -2,6 +2,7 @@ package tree
 
 import (
 	"errors"
+	"fmt"
 	"path"
 	"strings"
 
@@ -180,5 +181,23 @@ func (t *Tree) ApplyEntry(entry *raftpb.LogEntry) error {
 		return t.Delete(entry.GetTargetPath())
 	default:
 		panic("should be unreachable (modification type must have been invalid)")
+	}
+}
+
+func (t *Tree) DebugDumpState() string {
+	var b strings.Builder
+	t.root.debugDumpState(&b, 0)
+	return b.String()
+}
+
+func (node *ZNode) debugDumpState(b *strings.Builder, indent int) {
+	b.WriteString(fmt.Sprintf("%v (v%03d) = %#v", node.Name, node.Version, node.Data))
+	childIndent := indent + 1
+	for _, child := range node.Children {
+		for range childIndent {
+			b.WriteString("  ")
+		}
+		child.debugDumpState(b, childIndent)
+		b.WriteString("\n")
 	}
 }
