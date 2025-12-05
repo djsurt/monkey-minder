@@ -10,7 +10,10 @@
 \usepackage{lipsum}
 \usepackage{graphicx}
 \usepackage{calc}
+\usepackage[style=ieee]{biblatex}
 \renewcommand{\ttdefault}{cmtt}
+
+\addbibresource{sources.bib}
 
 \ifx\mmCfgTodos\undefined
     \usepackage[disable]{todonotes}
@@ -901,71 +904,7 @@ Once there is a majority alive, there should eventually be a leader elected.
 \section{Conclusions}
 \todo[inline]{Conclusions section}
 
-\begin{thebibliography}{00}
-
-\bibitem{zookeeper2010}
-P.~Hunt, M.~Konar, F.~P.~Junqueira, and B.~Reed, 
-``ZooKeeper: Wait-free coordination for Internet-scale systems,''
-in \emph{Proc. 2010 USENIX Annual Technical Conference (USENIX ATC’10)}, 
-Boston, MA, USA, Jun. 2010.
-
-\bibitem{zookeeperUseCases}
-Apache Software Foundation,
-``ZooKeeper: Because coordinating distributed systems is a zoo,''
-Accessed: Oct. 9, 2025. [Online]. Available:
-\url{https://zookeeper.apache.org/doc/current/zookeeperUseCases.html}
-
-\bibitem{raft2014}
-D.~Ongaro and J.~Ousterhout,
-``In search of an understandable consensus algorithm,'' 
-in \emph{Proc. 2014 USENIX Annual Technical Conference (USENIX ATC’14)}, 
-Philadelphia, PA, USA, Jun. 2014. 
-[Online]. Available: 
-\url{https://www.usenix.org/system/files/conference/atc14/atc14-paper-ongaro.pdf}
-
-\bibitem{kim2021}
-D.~Kim, I.~Doh, and K.~Chae,
-``Improved Raft algorithm exploiting federated learning for private blockchain performance enhancement,''
-in \emph{Proc. 2021 International Conference on Information Networking (ICOIN)}, 
-Jeju Island, South Korea, Jan. 2021, pp.~828--832. 
-doi: \href{https://doi.org/10.1109/ICOIN50884.2021.9333932}{10.1109/ICOIN50884.2021.9333932}.
-
-\bibitem{liu2022}
-X.~Liu, Z.~Huang, Q.~Wang, and N.~Luo,
-``An optimized key–value Raft algorithm for satisfying linearizable consistency,''
-in \emph{Proc. 2022 Int. Conf. on Networking and Network Applications (NaNA)},  
-Haikou, China, Dec. 2022, pp.~522--527.  
-doi: \href{https://doi.org/10.1109/NaNA56854.2022.00096}{10.1109/NaNA56854.2022.00096}.
-
-\bibitem{liu2023}
-X.~Liu, Z.~Huang, and Q.~Wang,
-``An optimized snapshot Raft algorithm for log compression,'' 
-in \emph{Proc. 2023 2nd Int. Conf. on Artificial Intelligence and Blockchain Technology (AIBT)}, 
-Chengdu, China, Jun. 2023, pp.~6--10.  
-doi: \href{https://doi.org/10.1109/AIBT57480.2023.00008}{10.1109/AIBT57480.2023.00008}.
-
-\bibitem{paznikov2020}
-A.~A.~Paznikov, A.~V.~Gurin, and M.~S.~Kupriyanov,
-``Implementation in actor model of leaderless decentralized atomic broadcast,''
-in \emph{Proc. 2020 9th Mediterranean Conf. on Embedded Computing (MECO)}, 
-Budva, Montenegro, Jun. 2020, pp.~1--4.  
-doi: \href{https://doi.org/10.1109/MECO49872.2020.9134220}{10.1109/MECO49872.2020.9134220}.
-
-\bibitem{sui2025}
-X.~Sui, X.~Wang, and S.~Duan,
-``Signature-free atomic broadcast with optimal $\mathcal{O}(n^{2})$ messages and $\mathcal{O}(1)$ expected time,'' 
-in \emph{Proc. 2025 IEEE Symposium on Security and Privacy (SP)}, 
-San Francisco, CA, USA, May 2025, pp.~1547--1565.  
-doi: \href{https://doi.org/10.1109/SP61157.2025.00244}{10.1109/SP61157.2025.00244}.
-
-\bibitem{mane2023}
-S.~Mane, F.~Lyu, and B.~Reed,
-``Verify, and then trust: Data inconsistency detection in ZooKeeper,'' 
-in \emph{Proc. 10th Workshop on Principles and Practice of Consistency for Distributed Data (PaPoC ’23)}, 
-Rome, Italy, May 2023, pp.~16--22.  
-doi: \href{https://doi.org/10.1145/3578358.3591328}{10.1145/3578358.3591328}.
-
-\end{thebibliography}
+\printbibliography[title=References]
 
 \end{document}
 
