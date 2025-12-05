@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -35,12 +36,12 @@ const (
 
 func (state NodeState) Name() string {
 	switch state {
-    case FOLLOWER:
-        return "FOLLOWER"
-    case CANDIDATE:
-        return "CANDIDATE"
-    case LEADER:
-        return "LEADER"
+	case FOLLOWER:
+		return "FOLLOWER"
+	case CANDIDATE:
+		return "CANDIDATE"
+	case LEADER:
+		return "LEADER"
 	}
 	return "<invalid state>"
 }
@@ -48,25 +49,26 @@ func (state NodeState) Name() string {
 type RaftServer struct {
 	raftpb.UnimplementedRaftServer
 	mmpb.UnimplementedMonkeyMinderServiceServer
-	Port              int
-	Id                NodeId
-	peers             map[NodeId]string
-	state             NodeState
-	grpcServer        *grpc.Server
-	listener          net.Conn
-	peerConns         map[NodeId]raftpb.RaftClient
-	mmConns           map[NodeId]*monkeyminder.Client
-	term              Term
-	votedFor          NodeId
-	log               *Log
-	commitPoint       *LogCheckpoint
-	leader            NodeId
-	aeRequestChan     chan *raftpb.AppendEntriesRequest
-	aeResponseChan    chan *raftpb.AppendEntriesResult
-	rvRequestChan     chan *raftpb.VoteRequest
-	rvResponseChan    chan *raftpb.Vote
-	clientSessions    map[sessionId]*clientSession
-	clientSessNextUid atomic.Uint64
+	Port               int
+	Id                 NodeId
+	peers              map[NodeId]string
+	state              NodeState
+	grpcServer         *grpc.Server
+	listener           net.Conn
+	peerConns          map[NodeId]raftpb.RaftClient
+	mmConns            map[NodeId]*monkeyminder.Client
+	term               Term
+	votedFor           NodeId
+	log                *Log
+	commitPoint        *LogCheckpoint
+	leader             NodeId
+	aeRequestChan      chan *raftpb.AppendEntriesRequest
+	aeResponseChan     chan *raftpb.AppendEntriesResult
+	rvRequestChan      chan *raftpb.VoteRequest
+	rvResponseChan     chan *raftpb.Vote
+	clientSessions     map[sessionId]*clientSession
+	clientSessionsLock sync.RWMutex
+	clientSessNextUid  atomic.Uint64
 	// intermediary, client msgs folded into one channel
 	clientMessagesIncoming chan clientMsg
 	// client msgs to actually be handled

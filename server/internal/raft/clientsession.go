@@ -7,12 +7,12 @@ import (
 	"io"
 	"log"
 
+	mmclient "github.com/djsurt/monkey-minder"
 	mmpb "github.com/djsurt/monkey-minder/proto"
 	raftlog "github.com/djsurt/monkey-minder/server/internal/log"
 	"github.com/djsurt/monkey-minder/server/internal/monkeyminder"
 	raftpb "github.com/djsurt/monkey-minder/server/proto/raft"
 	"google.golang.org/grpc"
-	mmclient "github.com/djsurt/monkey-minder"
 )
 
 type sessionId uint64
@@ -47,7 +47,9 @@ func (s *RaftServer) Session(server grpc.BidiStreamingServer[mmpb.ClientRequest,
 		isLive:       true,
 		responseChan: responseChan,
 	}
+	s.clientSessionsLock.Lock()
 	s.clientSessions[sess.uid] = sess
+	s.clientSessionsLock.Unlock()
 
 	defer func() { sess.isLive = false }()
 
@@ -94,7 +96,7 @@ clientLoop:
 		case err = <-recvError:
 			break clientLoop
 		case request := <-requestChan:
-			log.Printf("Received request: %v\n", request)
+			// log.Printf("Received request: %v\n", request)
 			switch request.GetKind() {
 			case mmpb.RequestType_INTERNAL_LEADERCHECK:
 				responseChan <- &mmpb.ServerResponse{
@@ -125,7 +127,9 @@ clientLoop:
 }
 
 func (s *RaftServer) handleClientMessage(msg clientMsg) {
+	s.clientSessionsLock.RLock()
 	session := s.clientSessions[msg.sessionId]
+	s.clientSessionsLock.RUnlock()
 	if msg.msg.IsLeaderOnly() {
 		if s.state == LEADER {
 			response, newEntries := msg.msg.DoMessage(*s.log.Latest())
