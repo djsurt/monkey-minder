@@ -54,6 +54,14 @@
     \renewcommand{\mmdfiguretodo}[2]{}
 \fi
 
+% for key words/phrases
+\newcommand{\term}[1]{\textit{#1}}
+% for references to class/function names
+\newcommand{\codeterm}[1]{\texttt{#1}}
+
+\newcommand{\todocritical}[2][]{\todo[color=red, caption={CRITICAL: #2}, #1]{#2}}
+\newcommand{\todonitpick}[2][]{\todo[color=cyan, caption={nitpick: #2}, #1]{#2}}
+
 \begin{document}
 
 % title stuff
