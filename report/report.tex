@@ -85,9 +85,12 @@ for managing concurrent access to shared resources.
 Second, instead of Zab we chose to utilize the Raft consensus algorithm. While
 Zab and Raft are both equivalent to Paxos \todo{CITE}, Raft is more recent algorithm
 and used in popular services such as etcd and MongoDB \todo{CITE}. Additionally, 
-Raft claims to be a more understandable alternative to Paxos. This required us 
-to relax the guarantees of the Raft protocol, which requires total ordering of 
-both reads and writes.
+Raft claims to be a more understandable alternative to Paxos, a property that proved
+to make implementation easier. In order to use Raft, we had to relax its consistency
+guarnatee for reads, which provides for linearizable reads by forwarding all requests
+to the leader. ZooKeeper only provides monotonic reads from the perspective of 
+individual clients. We modified our Raft implementation to allow reads to be served 
+locally from each replica, enabling high throughput for read-dominant workloads.
 
 Third, we chose to use gRPC and Protocol buffers as our transport layer. gRPC is
 an RPC framework created by Google \todo{CITE}, and Protobufs are Google's language 
