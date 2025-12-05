@@ -217,7 +217,7 @@ func (client *Client) Exists(path string, watchChan chan bool) <-chan bool {
 // the provided version, or -1 if no version checking is required.
 func (client *Client) SetData(path string, data string, version Version) <-chan bool {
 	request := &mmpb.ClientRequest{
-		Kind:    mmpb.RequestType_GETDATA,
+		Kind:    mmpb.RequestType_SETDATA,
 		Id:      client.nextId(),
 		Path:    &path,
 		Data:    &data,
