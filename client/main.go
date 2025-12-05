@@ -42,24 +42,38 @@ func main() {
 		panic(err)
 	}
 
-	log.Println("Submitting Create /bar...")
-	<-client.Create("/bar", "meow")
-	log.Println("Submitting GetData /bar...")
-	log.Println("Setting /bar to bark...")
-	<-client.SetData("/bar", "bark", -1)
-	bar := <-client.GetData("/bar", nil)
-	fmt.Printf("Got data from /bar: %v\n", bar)
-	fmt.Println("Submitting Delete /bar...")
-	<-client.Delete("/bar", -1)
-	fmt.Println("Deleted /bar...")
-	b := <-client.GetData("/bar", nil)
-	log.Printf("/bar after delete: %v\n", b)
-
 	for {
-		currentFoo := <-client.GetData("/foo", nil)
-		log.Printf("got value: %v", currentFoo)
+		log.Println("Executing Create('/bar')...")
+		if <-client.Create("/bar", "meow") {
+			log.Println("Successfully created '/bar' w/ value 'meow'")
+		} else {
+			log.Println("Failed to create '/bar'")
+		}
+		<-time.After(20 * time.Second)
 
-		<-time.Tick(time.Second * 1)
+		log.Println("Executing GetData('/bar')...")
+		bar := <-client.GetData("/bar", nil)
+		log.Printf("Value of '/bar': %v\n", bar.Data)
+		<-time.After(20 * time.Second)
+
+		log.Println("Executing SetData('/bar', 'bark')...")
+		<-client.SetData("/bar", "bark", -1)
+		<-time.After(20 * time.Second)
+
+		log.Println("Executing GetData('/bar')...")
+		bar = <-client.GetData("/bar", nil)
+		fmt.Printf("New value of /bar: %v\n", bar)
+		<-time.After(20 * time.Second)
+
+		log.Println("Executing Delete('/bar')...")
+		<-client.Delete("/bar", -1)
+		fmt.Println("Deleted /bar...")
+		<-time.After(20 * time.Second)
+
+		log.Println("Attempting to GetData('/bar')...")
+		b := <-client.GetData("/bar", nil)
+		log.Printf("/bar after delete: %v\n", b)
+		<-time.After(20 * time.Second)
 	}
 }
 
