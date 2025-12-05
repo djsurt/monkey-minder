@@ -1,0 +1,65 @@
+\subsection {Approach Evaluation}
+Our system uses Raft-based replication to implement a strongly consistent metadata store.
+Our approach is appropriate because Raft provides a well-specified, leader-driven consensus protocol that is easier
+to implement correctly than Paxos while providing equivalent safety guaranteed. The system obtains linearizable writes,
+monotonic reads, and crash-failure tolerance through its use of term-based leader election, quorum-based log replication,
+ans a state machine driven replicated log.
+
+Raft's correctness is due to the following:
+(1) at most one leader is elected per term
+(2) leaders never overrite committed log entries,
+(3) the log-matching property ensures all prefixes of log converge.
+Our implementation enforces these through:
+\begin{itemize}
+    \item \textbf{Randomized election timeouts} (\texttt{DEFAULT\_MIN\_TIMEOUT}-\texttt{DEFAULT\_MAX\_TIMEOUT}) ensuring split-vote resolution.
+    \item \textbf{Term discipline}: RPC handlers check and update terms, forcing candidates and leaders to revert to followers on higher terms.
+    \item \textbf{Log matching \& conflict repair}: followers reject mismatched \texttt{prevLogIndex}/\texttt{prevLogTerm} and truncate to the last matching prefix via \texttt{reconcileLogs()}.
+    \item \textbf{Commit index advancement}: leaders compute the majority-replicated index across followers and safely advance commit state.
+    \item \textbf{State machine application}: committed entries are applied to the heirarchical tree structire, maintaining deterministic state evolution across replicas.
+\end{itemize}
+
+The algorithmic complexity reflects standard Raft complexity:
+\begin{itemize}
+    \item Leader election completes in $O(n)$ messages.
+    \item Log replication is $O(k)$ for $k$ new entries, with conflict repair costing up to $O(\ell)$ in worst case log-divergence.
+    \item Steady-state operation requires $O(n)$ heartbeats per period.
+    \item State lookups in the tree operates in $O(h)$ where $h$ is the path depth.
+\end{itemize}
+
+Raft's simplicity allowed us to write a clean, channel-driven state machine in Go, where all the consensus dependant transitions occur in a
+single goroutine (\texttt{doFollower}, \texttt{doCandidate}, \texttt{doLeader}).
+This eliminates races in shared data without requiring explicit locks.
+
+\subsection{Evaluation of Key Distributed-System Properties}
+
+\subsubsection{Fault Tolerance}
+
+Our system tolerates crash failures of leaders and followers by a combination of mechanisms. Followers use randomized election timeouts to detect leader failures and
+step up to candidates, which starts the leader election mechanism. Regardless of which state a node is in, it will revert to a follower once
+it receives an RPC with a higher term. Since every log entry is committed only when acknowledged by a majority, any commmitted update is guaranteed to survive
+leader crashes. 
+
+If a leader crashes before commit, followers do not expose the uncommitted update. If it crashes after commit, the new leader preserves the entry
+because it has already recorded i. This matches Raft's safety guaranees and is validated through our test cases (Test cases 6, 7). 
+
+\subsubsection{Performance}
+
+We have several design choices that optimize low-latency and high throughput. Our replication is fully pipelined: Our leader issues AppendEntries RPCs.
+concurrently to all peers, and followers respond asynchronously. The leader's inner loop is non-blocking except when waiting on
+client-related watches that ensure linearizability for leader-only operations.
+
+Reads are also efficiently processed. Non-mutating requests (\texttt{GetData}), \texttt{GetChildren} are handled locally by any follower
+without contacting the leader, significantly reducing load on the leader. This separation between read and write paths 
+reduces bottlenecks.
+
+\subsubsection{Scalability}
+The system scales horizontally using more Raft nodes. Writes cost $O(n)$ messages but remain performant for typical 
+quorum sizes (3-7 nodes). Reads scale nearly linearly because they can be served by any follower for non-mutating requests.
+The log layer supports compaction (\texttt{SquashFirstN}, \texttt{TruncateAt}) ensuring logs don't grow unbounded.
+
+\subsubsection{Consistency}
+
+We acheive \textbf{linearizable writes} and \textbf{monotonic reads} in our system. One of the factors that let us acheive this is the
+leader-serialization of all client updates. The other important factor is the strict-prefix agreement enforced by \texttt{doCommonAE()} 
+and \texttt{reconcileLogs()}, which ensures that followers never diverge from the leader's log. Finally, followers apply committed entries
+strictly in order through log checkpoints.

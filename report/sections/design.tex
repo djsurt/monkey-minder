@@ -1,0 +1,271 @@
+Our design takes into account the distributed systems challenges of heterogeneity,
+openness, security, failure handling, concurrency, quality of service and scalability.
+
+\textbf{Heterogeneity}:
+We expose our service via gRPC with Protocol Buffers, which provides a language-agnostic, 
+platform-agnostic interface for clients to interact between clients and servers. The Raft
+server implements the \texttt{RaftServer} gRPC service and uses generated stubs on both the 
+server and client side, allowing future clients to be written in any language supported by
+gRPC without changing the core consensus implementation.\todo{Have some sort of citation maybe}
+
+\textbf{Openness}:
+The system is designed as a set of composable modules: the replicated log (\texttt{Log}), the
+tree-based data store (\texttt{Tree}), and the Raft consensus layer (\texttt{RaftServer}). The
+log is generic over the entry snapshot types and only depends on an abstract \texttt{Snapshot}
+interface, so other state machines (besides our ZooKeeper-like tree) can be plugged in 
+without changing the Raft code.
+
+\textbf{Security}:
+At the transport layer we use gRPC, which supports mutual TLS for channel encryption and
+authentication. In the current prototype, we use insecure credentials for simplicity, but
+the design isolates transport setup inside \texttt{connectToPeers}, so adding TLS in the future
+will be straightforward.
+
+\textbf{Failure Handling}:
+Raft provides deterministic leader election and log replication under crash failures.
+The follower nodes use randomized election timeouts to avoid split votes, and step up to
+the candidate role when they stop hearing from a leader. Candidates send \texttt{RequestVote}
+RPCs in parallel and step own when they see a higher term, while leaders periodically
+send empty \texttt{AppendEntries} (heartbeats) and perform log backtracking and truncation when
+followers' logs diverge.
+
+\textbf{Concurrency}:
+Each node runs a single Raft loop(\texttt{doLoop}) that dispatches into role-specific
+loops (\texttt{doFollower}, \texttt{doCandidate}, \texttt{doLeader}). These loops serialize
+all consensus state transitions. RPC handlers for \texttt{RequestVote} and \texttt{AppendEntries}
+only enqueue requests on channels and block waiting for responses, which keeps Raft state
+changes confined to the state machine goroutine. Parallelism is used only for outbound RPCs
+(e.g, parallel vote requests and AppendEntries to followers), ensuring a simple, mostly single-threaded
+correctness story while still utilizing concurrency for I/O.
+
+\textbf{Quality of Service}:
+Randomized election timeouts limit unecessary split vites, while periodic heartbeats prevent
+unnecessary elections during normal operation. The log module supports compaction (squashing)
+and snapshotting so that old entries can be removed once safely replicated and applied, which
+bounds memory usage and keeps replication latency low during long-running workloads.
+
+\textbf{Scalability}:
+The system scales horizontally by adding more Raft servers to the cluster. Clients talk to
+any node in the cluster\todo{MIGHT NEED TO CHANGE THIS}. Reads and writes are internally forwarded
+to the current leader, which serializes updates and replicates them to followers using AppendEntries.
+Because the replicated log is generic, different state machines can be plugged in to support different
+workloads without changing the consensus layer.
+
+\textbf{Transparency}:
+Clients interact with the system as if it were a single, ZooKeeper-like service with a heirarchical
+namespace. They are don't know which node is currently the leader, when failovers occur, or how many replicas
+exist in the cluster. Leader elecion, log replication, and commit-index management are all hidden behind the
+API, providing failure transparency and location transparency.
+
+\subsection{Key Components and Algorithms}
+
+\subsubsection{RaftServer and Node Roles}
+The \texttt{RaftServer} type represents a single Raft node. It maintains the node identity (\texttt{Id}), peer addresses,
+current role (\texttt{FOLLOWER}, \texttt{CANDIDATE}, \texttt{LEADER}), current term, the node it voted for,
+gRPC server state, a replicated log, and per-RPC channels for AppendEntries and RequestVote. 
+
+The lifecycle is driven by the \texttt{doLoop}, which dispatches to state-specific loops. The {doFollower}
+loop waits for AppendEntries and RequestVote requests. It resets its election timer on each valid interaction.
+If the timer expires, the node promotes itself to \texttt{CANDIDATE}. The \texttt{doCandidate} loop handles all the
+logic for the voting mechanism during leader election. It increments its term, votes for itself, and sends parallel
+RequestVote RPCs to all peers. The \texttt{CANDIDATE} becomes \texttt{LEADER} upon winning a majority.
+It reverts to \texttt{FOLLOWER} if it sees a higher term, or restarts the election on timeout. The \texttt{doLeader}
+loop manages per-follower replication pointers (\texttt{nextIndex} and \texttt{matchIndex}). It sends AppendEntries
+heartbeats and log entires, and responds to vote and AppendEntries RPCs from other nodes, stepping down when observing a higher
+term.
+
+\subsubsection{Log and Snapshot Module}
+The replicated log is implemented as a generic, snapshot-aware data structure with an entry and a snapshot type.
+This enables easy integration with our heirarchical tree data store.
+The replicated log maintains the following:
+(i) a \texttt{headSnapshot} representing the state up to the first stored entry,
+(ii) a \texttt{tailSnapshot} that is updated as new entries are appended,
+(iii) an index offset for the first logical entry,
+(iv) the slice of entries, and
+(v) a commit index.
+
+Appending an entry to the log involves two steps. First, the entry is applied to
+the \texttt{tailSnapshot}, producing an updated state that reflects the new
+operation. Second, the entry is appended to the in-memory list of log entries.
+This ensures that the tail snapshot always reflects the state obtained by
+applying all log entries in order, simplifying state-machine replication.
+
+The log supports multiple retrieval methods, including \texttt{GetEntryAt} and
+\texttt{GetEntryLatest}, which provide direct indexed access to entries or the
+most recently appended entry. These operations are crucial during leader
+election, where candidates must advertise their last log index and term, and
+during replication, where followers verify that their local logs agree with the
+leader’s prefix.
+
+To prevent unbounded growth, the log implements compaction operations.
+\texttt{SquashFirstN} applies the first \(n\) entries in the log to the
+\texttt{headSnapshot} and removes them from memory, effectively shortening the
+log without losing state. \texttt{SquashUntil} performs a similar compaction
+based on a predicate evaluated over log entries. These mechanisms mimic
+snapshotting in production Raft systems and allow long-running clusters to avoid
+excessive memory usage.
+
+Truncation is handled through the \texttt{TruncateAt} method, which removes log 
+entries at and beyond a specfied index after first rebuilding the \texttt{tailSnapshot}
+using the nearest snapshot at or below the index. Raft leaders use this function to repair
+logs on followers that have diverged from the leader's log due to incomplete replication or
+outdated state.
+
+\subsubsection{Application-Level Command Processing}
+
+Client operations are expressed as implementations of the \texttt{ClientMessage} interface. Each message type(
+\texttt{Create}, \texttt{Delete}, \texttt{SetData}, \texttt{Exists}, \texttt{GetData}, and \texttt{GetChildren}) 
+encapsulates the semantics of a client request. Messages specify whether they must run on the leader (\texttt{IsLeaderOnly}) and define how to produce new log
+entries through \texttt{DoMessage}. Read-only commands generate no log entries and operate directly on the snapshot of the tree maintained by the server. By contrast, write operations produce a list of \texttt{LogEntry} structures that
+the leader appends to the log and replicates across the cluster.
+
+Our design intentionally separates the applicaiton logic from Raft's consensus logic. Raft guarantees
+the order and durability of log entries, while the message handlers guarantee deterministic state transitions
+for the Tree data store.
+
+\subsubsection{Watch Manager}
+
+The system provides lightweight watch functionality similar to ZooKeeper's. Each watch consists of a predicate
+tested against committed log entries. When a committed entry satisfies a watch predicate, the associated callback
+channel is fired and the watch is removed. Watches are checked during leader commit processing. This ensures that
+notifications reflect globally committed state.
+
+\subsubsection{Tree State Machine}
+The state machine that is replicated by Raft is a heirarchical \texttt{Tree} structure that closely
+models ZooKeeper's znode abstraction. Each node in the tree has a name, associated data, a version number, and a set of children.
+Operations such as \texttt{Create}, \texttt{Update}, and \texttt{Delete} modify the tree deterministically.
+Because these operations are deterministic and their arguments are captured precisely in \texttt{LogEntry} values,
+every replica applying the same sequence of committed log entries converges to the same logical state.
+
+The \texttt{ApplyEntry} method maps log entries to concrete tree operations. This strict determinism is the foundation
+of correct state machine replication.
+% \begin{figure}[h]
+%     \centering
+%     \includegraphics[width=2.5in]{test-uml.mmd.pdf}
+%     \caption{Hello world.}
+% \end{figure}
+
+\todo[inline]{Need to finish this section with the diagrams}
+\subsection{Architecture and Component Interaction}
+
+Our system follows a replicated state-machine architecture built around a
+Raft cluster. The clients interact with what looks like a single
+centralized data store service, while internally the service is replicated across
+multiple Raft servers for fault tolerance and consistency.
+
+Each server process embeds three main subsystems: a client-facing RPC layer, the
+Raft consensus module, and the replicated data store tree. The RPC layer terminates
+gRPC/Protocol Buffer requests from clients and converts them into typed
+\texttt{ClientMessage} objects. These messages are then processed by the local
+Raft instance. For write operations (such as \texttt{Create}, \texttt{SetData},
+and \texttt{Delete}), the server’s Raft leader appends a corresponding
+\texttt{LogEntry} to its log, replicates the entry to followers via
+\texttt{AppendEntries} RPCs, and, once a majority have acknowledged the entry,
+commits it and applies it to the tree state machine. Read-only operations
+(\texttt{Exists}, \texttt{GetData}, \texttt{GetChildren}) can be served by any
+node using its committed snapshot, while leader-only operations are forwarded
+internally to the current leader.
+
+From the client’s point of view, all of this complexity is hidden (transparency). Clients
+connect to any server, issue operations against a hierarchical namespace, and
+receive responses that reflect a linearizable history of writes and monotonic
+reads. Leader election, log replication, commit-index management, and watch
+delivery all occur behind the scenes within the Raft layer.
+
+\subsubsection{Use-Case View}
+
+Figure~\ref{fig:usecase} presents a use-case style view of the system from the
+client’s perspective. The primary actor is a generic client application that
+interacts with the our data service. The main use cases include
+creating znodes, updating data, reading data, listing children, deleting znodes,
+and registering watches for changes. An operator or administrator actor may
+perform management-oriented operations such as enumerating znodes or cleaning up
+application state.
+
+\mmdfiguretodo{usecase-overview}{System use-case overview.\label{fig:usecase}}
+
+This diagram emphasizes that clients treat the service as a single logical
+coordination point, even though it is backed by multiple Raft replicas.
+
+\subsubsection{Deployment and Component View}
+
+Figure~\ref{fig:deployment} shows a combined deployment and component view of
+the system. On the left, client processes (e.g., our Go client tool) run on
+arbitrary hosts and open gRPC connections to any server in the Raft cluster. On
+the right, the cluster consists of three to five \texttt{RaftServer} processes,
+each hosting:
+
+\begin{itemize}
+  \item a \emph{ClientSession} component, which terminates client RPCs and
+        translates them into \texttt{ClientMessage} instances,
+  \item the \emph{Raft core}, which implements leader election, term tracking,
+        log replication, and commit-index advancement, and
+  \item the \emph{Tree state machine}, which applies committed log entries to
+        maintain the hierarchical znode namespace.
+\end{itemize}
+
+Servers communicate with each other exclusively via Raft RPCs
+(\texttt{RequestVote} and \texttt{AppendEntries}) over gRPC channels. The
+underlying network is assumed to provide reliable message delivery with possible
+delays, reordering, and crash-stop failures.
+
+\mmdfiguretodo{deployment}{Cluster deployment and component diagram.\label{fig:deployment}}
+
+This diagram highlights both the physical layout (distributed servers and
+clients) and the logical decomposition of each server process into components.
+
+\subsubsection{Dynamic Interaction and Sequence Views}
+
+Figures~\ref{fig:raft-election} and~\ref{fig:raft-rpc-flow} focus on the dynamic
+behavior of the Raft layer. Figure~\ref{fig:raft-election} is a state-oriented
+view of a single server’s role transitions among \texttt{FOLLOWER},
+\texttt{CANDIDATE}, and \texttt{LEADER}. It shows how randomized election
+timeouts, vote requests, and heartbeats cause nodes to move between states.
+
+Figure~\ref{fig:raft-rpc-flow} complements this with a sequence-style view of
+message exchanges during a leader election. A follower’s election timeout
+expires, it begins sending \texttt{RequestVote} RPCs, and, once it receives a majority of votes, it transitions
+to the leader state and starts sending \texttt{AppendEntries} heartbeats. These diagrams together illustrate the
+interaction between components and the temporal ordering of messages that
+establish a single, authoritative leader in each term.
+
+Finally, the write path from client to replicated tree follows a similar sequence: the client sends a request to the leader; the leader appends the
+corresponding log entry, replicates it to followers using \texttt{AppendEntries}, waits for a majority of successful 
+responses, advances the commit index, applies
+the entry to the local tree, triggers any relevant watches, and then replies to the client. This sequence ensures that externally visible
+state always reflectscommitted, majority-replicated updates.
+
+\subsection{Log}
+\mmdfigure{log-diagram}{Log UML}
+\mmdfigure{log-diagram-structure}{Log structure}
+
+We opt to implement more general, generic log API which is suitable for our use case,
+and then build the specific functionality we need on top of that.
+Our \texttt{Log} consists of entries, snapshots, and checkpoints.
+\subsubsection{Interfaces}
+To make Log work with one's data types, a corresponding \textit{Entry} type must be created and the \textit{Snapshot} interface must be implemented.
+
+An \textit{Entry} is a single element in the log, in other words, it is an object representing a single modification.
+Entries can be appended to the end of the log with \texttt{log.Append(entry)} and accessed with either \texttt{log.GetEntryAt(index)} or \texttt{log.GetEntryLatest()}.
+There is no actual interface corresponding to \textit{Entry}, rather, it is whatever type is accepted by the \textit{Snapshot}'s \texttt{Append} method (see below).
+
+A \textit{Snapshot} represents the full state of the system at a given entry in the log.
+Data types implementing the \texttt{Snapshot} interface need only provide a \texttt{Clone()} method, and a \texttt{Append(entry)} method which makes the corresponding change to itself in-place.
+
+\subsubsection{Log Functionality}
+Logs track two primary snapshots: a \textit{head snapshot} representing the state before any changes were made, and a \textit{tail snapshot} representing the state after all changes have been made.
+When an entry is appended to the log, as well as adding the entry to its internal list of entries, the log also applies the entry to its tail snapshot.
+
+Keeping both snapshots allows us to roll back certain log entries if necessary without storing the state at every entry,
+but still allowing for $O(1)$ access to the current state.
+\subsubsection{Checkpoints}
+In practice, we do not only care about tracking of (and efficient access to) the state at the end of the log,
+we also need to get those same things for the point partway through the which has definitely been committed.
+
+To this end, we implement a system of \textit{Checkpoints}, in which a \textit{Checkpoint}:
+\begin{itemize}
+    \item Sits at some logical point along the log. (Which is to say that it either sits at an index corresponding to an entry already in the log, or else sits at the logical position at the start of the log, before all entries.)
+    \item Can be advanced from its current position to a later position in the log. (Checkpoints \textbf{cannot} be moved backwards)
+    \item Tracks an additional \textit{Snapshot} at its position, providing the user $O(1)$ access to the state at its position, as well as providing the log a more recent spot from which to begin re-creating the tail snapshot when entries are removed.
+    \item Forbids removing its corresponding entry, or any entries before that, from the log.
+\end{itemize}

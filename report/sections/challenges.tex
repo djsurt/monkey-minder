@@ -1,0 +1,43 @@
+While building our ZooKeeper-like service, we had to address multiple fundamental distributed system challenges.
+These challenges shaped the requirements and constraints of our system and influenced the design decisions described in
+detail in the Design section.
+
+Fundamental to our system is the issue of \textbf{consistency}. In a distributed environment with concurrent clients and 
+asynchronous communication, ensuring that all nodes observe a coherent view of the shared state is non-trivial.
+Without careful coordination, concurrent updates could lead to divergent replicas, fractured writes, or stale reads.
+We addressed this concern by strictly adhering to the Raft protocol. As long as one leader is only ever responsible
+for updating the global state, we can ensure that changes to the state are \textbf{linearizable}. Furthermore, by
+ensuring that these updates are durable, we can guarantee \textbf{monotonic reads} to clients with respect to the
+global state. Once an update is committed, it can never be deleted. While clients may read stale data, the data
+they read will preserve the causal relationship of state updates.
+
+Our system is \textbf{fault tolerant}. Individual nodes may crash, restart with stale state, or 
+fail to communicate due to partitions. Our system must continue making progress despite these failures
+and must guarantee that committed updates are never lost or partially applied. Achieving fault tolerance while 
+preserving strong consistency imposed strict requirements on how nodes coordinate, elect leaders, and recover 
+from failures.
+
+\textbf{Concurrency} is also an essential challenge. Individual nodes in our system process many requests simultaneously, 
+each competing for access to a shared global state. Without a proper serialization of requests, concurrent operations could 
+produce non-deterministic outcomes. This is especially relevant for operations like create, update, and delete, which must 
+appear atomic to clients. We addressed this by ensuring that each server node processes client requests in the order
+received, and that if a server processes a write request, it does not process any other request until the write is complete.
+This ensures that client transactions are serialized with respect to individual servers.
+
+Our service is designed to be \textbf{scalable}. As the number of clients and nodes grows, the system maintains
+high throughput, especially for read-dominant workloads. ZooKeeper, which our project is based upon, is designed
+to support concurrent read requests by allowing replication to naturally load-balance client requests. Since our
+system can scale horizontally as replicas are added to the cluster, this naturally supports high availability and 
+throughput. An added benefit of this is that as our system scales, it becomes more fault tolerant as fewer nodes
+are required to be available to ensure correct operation of the server.
+
+Furthermore, our system is \textbf{transparent}. Clients do not need to know which node is the current leader, 
+whether a failover has occured, or how the system internally coordinates. Masking operational details 
+simplifies the client interface and reduces risk of incorrect client behavior.
+
+Finally, \textbf{heterogeneity and openness} are an essential feature of our system. By using language \& platform agnostic
+tools like gRPC, Protobufs, and GoLang, our system can communicate with any client that implements our service API using
+our RPC definitions. Golang, while being a compiled language, supports a lot of abstraction over the underlying operating
+system. As a result, any platform with a Go compiler can run our server software and participate in a cluster. Additionally,
+because all of our service APIs are defined in the Protobuf format, additional APIs can be added on top of our core service
+without much modification to the consensus layer.

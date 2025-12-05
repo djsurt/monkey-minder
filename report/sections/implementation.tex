@@ -1,0 +1,213 @@
+Our implementation is divided into two main layers: the Client API Layer and the Consensus Layer.
+
+\subsection{Client API Layer}
+The client layer provides several endpoints for interacting with the system. These include operations for creating, deleting, and checking the existence of paths, as well as retrieving and setting data. Additionally, clients can retrieve children of a path and synchronize their state with the server.
+
+
+\subsection{Consensus Layer}
+The consensus layer is built on the Raft protocol, replacing ZooKeeper's Zab protocol. It operates with three distinct node states: Follower, Leader, and Candidate.
+Each node runs a state machine that delegates tasks to the appropriate handler based on its current role in the cluster.
+
+\subsubsection{Process Models and Types}
+Our Raft node is implemented by \texttt{ElectionServer}, which contains the node identity (\texttt{Id}), transport configuration (\texttt{Port}, \texttt{peers}),
+local state (\texttt{state}) $\in$ \{\texttt{FOLLOWER}, \texttt{CANDIDATE}, \texttt{LEADER}\}, and protocol variables (\texttt{term} and \texttt{logIndex}). We define
+strongly-types aliases for clairty:
+\texttt{Term} and \texttt{LogIndex} (\texttt{uint64}), and \texttt{NodeId} (\texttt{uint64}).
+
+The server exposes the Raft RPC through gRPC (service \texttt{ElectionServer}).
+Inbound RPCs are separated into internal channels:
+\texttt{aeRequestChan/aeResponseChan} for AppendEntries and \texttt{rvRequestChan/rvResponseChan} for RequestVote.
+
+\subsubsection{Lifecycle and Event Loop}
+The method \texttt{Serve()} performs three responsibilities:
+(i) create a TCP listener on \texttt{localhost:\$\{Port\}},
+(ii) construct and register a gRPC server that binds the Raft RPC handlers,
+and (iii) spawns the node's control loop \texttt{doLoop(ctx)} which drives the Raft state machine.
+
+\texttt{doLoop} runs forever, redirecting to one of \texttt{doFollower}, \texttt{doCandidate}, or 
+\texttt{doLeader} based on \texttt{state}. Each state handler is a blocking loop selecting over protocol
+events (RPCs) and timers, and exits only when a state transition occurs (e.g. timeout, quorum win, or term regression). This makes sure 
+that only one state handler is active at a time.
+
+\subsubsection{Timers and Failure Detector (Raft \S5.2)}
+We implement a randomized election timeout using
+\texttt{getNewElectionTimer()}, which draws uniformly from
+$[1500,2000]\,$ms. The node resets this timer on any leader activity
+(a valid AppendEntries) or on serving a RequestVote, matching the “leader
+stickiness” property of Raft. The heartbeat period is set to
+\texttt{DEFAULT\_HEARTBEAT\_TIMEOUT}$=750\,$ms; leaders refresh this
+periodically to prevent follower timeouts.
+
+\subsubsection{RPC Handler Boundary}
+Inbound RPCs (\texttt{AppendEntries}, \texttt{RequestVote}) are thin on purpose: they push the 
+immutable request onto the corresponding request channel and block on the response channel. The state
+machine consumes these requests inside the current role's loop, generates the reply, and sends it back.
+This preserves a single point of serialization for correctness and simplifies concurrency reasoning
+(network threads never mutate the Raft state directly).
+
+\subsubsection{Term Management and Common Logic (\S5.1)}
+Both RPC paths share "common" characteristics implemented in \texttt{doCommonAE} and \texttt{doCommonRV}:
+
+\begin{itemize}
+    \item \textbf{Monotonic terms}: If a request carries a term $T > $ \texttt{s.term},
+    the server marks \emph{staleTerm/shouldAbdicate} and defers \texttt{s.term = T} until
+    the response is composed; the caller (state loop) then transitions to \texttt{FOLLOWER}
+    as needed. Replies always include the server's current term.
+
+    \item \textbf{Reject stale terms}: If $T < \texttt{s.term}$ the server rejects.
+\end{itemize}
+
+This shared handlign ensures both RPC types correctly implement Raft's term
+invariant regardless of current role.
+
+\subsubsection{AppendEntries Path (Follower \& Leader, \S5.3)}
+The \texttt{AppendEntries} RPC is implemented as a wrapper around the \texttt{doCommonAE} helper. The RPC handler
+forwards the request onto \texttt{aeRequestChan} and waits on \texttt{aeResponseChan}, so that all log and term
+changes are serialied inside the Raft state loop.
+
+Inside \texttt{doCommonAE}, the server first enforces Raft's term rules. If the incoming request carries a higher term,
+the node updates its \texttt{term}, clears \texttt{votedFor}, and records the sender as the current leader before creating 
+a response. If the request term is stale, the server immediately returns \texttt{Success=false}.
+
+Next the follower checks log consistency with the leader. It calculates the index of its last local entry and 
+compares it with the \texttt{prevLogIndex} thats provided by the leader. If the follower's log is shorter than this index,
+or if the term at \texttt{prevLogIndex} does not match \texttt{prevLogTerm}, the follower rejets the RPC with 
+\texttt{Success=false}, indicating that the leader must backup and retry from an earlier prefix.
+
+When the prefix check succeeds, the follower calls \texttt{reconcileLogs} to repair any divergent suffixes. This helper
+scans new entries and either: 
+(i) appends entries beyond the end of the local log, or
+(ii) truncates the local log at the first conflicting index and then appends all remaining entries from the leader.
+This realizes Raft's ``conflicting entries are overwritten'' rule while minimiing unnecessary truncation.
+
+Finally, the follower advances its commit point. It sets the commit index to \(\min(\texttt{leaderCommit}, \)) and 
+uses the \texttt{commitPoint} checkpoint object to apply any newly commmitted entries to the tree state machine and fire watches.
+This ensures that committed state is monotonic and identical across all replicas.
+
+
+\subsubsection{RequestVote Path (Follower \& Candidate, \S5.2, \S5.4)}
+The \texttt{doCommonRV} routine implements the main Raft voting rules. When a 
+RequestVote RPC arrives, the server first checks the candidate's term and immediately
+adopts it. It reverts to the follower state if the candidate's term is higher. Then it
+enforces Raft's one vote per term requirement by granting a vote only when the server has
+not voted in the current term or when its prior vote was already vast for the same candidate. 
+Finally, it checks if the candidate's log is up to date as required by Raft.
+This comparison uses the \texttt{LastLog.AtLeastAsUpToDateAs} method, which first compares Log
+terms and uses the log index as the tiebreaker. Only candidates whose logs are at least up-to-date
+as the receiver's are eligble to receive a vote. The function returns both the vote decision and an
+indication of whether a higher term was ibserved, allowing the caller to reset \texttt{votedFor} when necessary.
+
+\subsubsection{Follower Role}
+\texttt{doFollower} maintains the election time and processes two classes of events:
+\begin{enumerate}
+    \item \textbf{AppendEntries}: processes through \texttt{doCommonAE}. On success or on seeing
+    higher term, resets election timer. If the leader's term is newer, clear \texttt{votedFor}
+    \item \textbf{RequestVote}: process via \texttt{doCommonRV}. Reply and reset the timer.
+\end{enumerate}
+If the timer elapses without observed leader activity, node transitions to \texttt{CANDIDATE}.
+
+\subsubsection{Candidate Role}
+\texttt{doCandidate} increments \texttt{term} and self-votes, then issues parallel  \texttt{RequestVote}
+RPCs vis \texttt{requestVotes(ctx)}.
+Votes are aggregated on a channel of \texttt{VoteResult}. The candidate:
+\begin{itemize}
+    \item Becomes \texttt{LEADER} upon majority (strictly more than half of $N$).
+    \item Reverts to \texttt{FOLLOWER} if any response carries a strictly higher term.
+    \item Restarts the election with a fresh randomized timeout if it fails to gain a quorum.
+    \item Rejects external vote requests for the current term because it already voted for itself,
+            unless a higher term appears (abdication).
+\end{itemize}
+
+\subsubsection{Leader Role}
+Upon entering \texttt{doLeader}, the node immediately asserts leadership by broadcasting
+\textit{heartbeats} (AppendEntries with empty \texttt{Entires}) to all peers. A ticker
+(\texttt{DEFAULT\_HEARTBEAT\_TIMEOUT}) triggers additional heartbeats periodically. Any
+inbound AppendEntries with a higher term or RequestVote with a higher term causes abdication
+to \texttt{FOLLOWER}. A short debug timer bounds the demo session for observability.
+
+% --- INSERT DIAGRAMS HERE ---
+\mmdfigure{raft-election}{Raft Leader Election State Machine\label{fig:raft-election}}
+\mmdfigure{raft-rpc-flow}{Raft RPC Interaction During Election\label{fig:raft-rpc-flow}}
+% --- END INSERT ---
+
+\subsubsection{Outbound RPCs and Parallelism}
+\texttt{sendHeartbeats} constructs a single immutable heartbeat request and invokes
+\texttt{AppendEntries} on each \texttt{ElectionClient} concurrently. Results are pushed to a
+shared \texttt{responses} channel.
+
+\texttt{requestVotes} similarly fans out \texttt{RequestVote} calls. Results are wrapped in
+\texttt{VoteResult} (peer id, grant bit, observed term, error) and gathered on a buffered channel.
+A \texttt{WaitGroup} coordinates producer completion, after which the channel is closed.
+
+\subsection{Log Module}
+The \texttt{log} package procides a lightweight, generic implementation of Raft's replicated log abstraction.
+It maintains an ordered sequence of log entries and two associated snapshots representing the state of the replicated state machine.
+
+\subsubsection{Design Overview}
+The core type \texttt{Log[E, S]} is a parameter over:
+\begin{itemize}
+    \item \textbf{E}: the entry type (application-specific commands).
+    \item \textbf{S}: a type implementing the \texttt{Snapshot[E, S]} interface, representing the materialized state after applying entries.
+\end{itemize}
+
+Each log instance tracks:
+\begin{itemize}
+    \item \texttt{headSnapshot}: a snapshot representing the state up to the first entry in the log.
+    \item \texttt{tailSnapshot}: a snapshot continously updates as new entries are appended.
+    \item \texttt{realFirstIndex}: the global index of the first log entry after squashing or compaction.
+    \item \texttt{entries}: an in-memory slice of remaining unapplied entries.
+\end{itemize}
+
+\subsubsection{Snapshot Interface}
+The \texttt{Snapshot} interface defines two generic methods:
+\begin{verbatim}
+    ApplyEntry(Entry)
+    Clone() Self
+\end{verbatim}
+\textbf{ApplyEntry} mutates the snapshot by applying an entry's effects, 
+while \textbf{Clone} ensures that new logs or truncations can safely copy snapshot state.
+
+\subsubsection{Log Initialization}
+\texttt{NewLog(initialSnapshot, indexOffset)} creates a new log from an existing snapshot.
+The constructor clones the snapshot for the head (persistent state) and it reuses it as the tail (mutable state).
+The \texttt{realFirstIndex} tracks the absolute position of the first entry, allowing the log to appear contiguous across truncations.
+
+\subsubsection{Appending Entries}
+\texttt{Append(entry)} performs two actions atomically:
+\begin{enumerate}
+    \item Applies the new entry to the tail snapshot via \texttt{ApplyEntry}, keeping the in-memory snapshot consistent.
+    \item Appends the entry to the \texttt{entries} slice.
+\end{enumerate}
+This ensures O(1) amortized append performance while keeping the latest snapshot always consistent with all entries applied so far.
+
+\subsubsection(Snapshotting and Compaction)
+To avoid excessive growth of the log, the Snapshot method supports selective compaction:
+\begin{itemize}
+    \item \texttt{SquashFirstN(n)} applies and removes the first \texttt{n} entries from the log, merging them into \texttt{headSnapshot} and incrementing \texttt{realFirstIndex}.
+    \item \texttt{SquashUntil(predicate)} squashes all entries up to (but not including) the first entry matching the given predicate.
+\end{itemize}
+This method follow's Raft's snapshotting behavior (\S7 of the Raft paper) without persistent storage: once entries are safely replicated and applied by all follower, they can be compacted.
+
+\subsubsection{Commit Point and Checkpoints}
+Each server maintains a \texttt{commitPoint} object, which is a checkpoint over the replicated log. On startup we create an initial checkpoint at the index
+immediately before the first log entry. As the leader observes that a given index has been replicated on a majority of servers, it advances the commit index
+and calls \texttt{commitPoint.AdvanceTo(newIndex)}. This operation replays newly committed entries from the log into the \texttt{Tree} snapshot and updates
+the internal cursor, so that subsequent advances are incremental rather than reapplying the entire log.
+
+Because checkpoints are tied to the snapshot-aware log, followers recovering from a crash can resume from their last committed index without recomputing the full state from scratch,
+and the commit path has a clear separation from the uncommitted tail fo the log.
+
+\subsection{Watch Manager Implementation}
+Our watch system is implemented by the \texttt{WatchManager}, which tracks a list of pending \texttt{Watch}es.
+Each \texttt{Watch} consists of a \texttt{predicate} function $\left(\texttt{LogEntry}, \texttt{Index}\right) \rightarrow \texttt{bool}$
+and a channel to be notified when the watch has occurred.
+
+When a leader commits a new log entry, it passes that entry, along with that entry's index, to the \texttt{WatchManager}.
+The \texttt{WatchManager} then checks all of its pending watches,
+and any watches whose predicates match this new entry will be removed from the list and their corresponding channels will be notified.
+
+\subsection{Transport and Peer Topology}
+\texttt{connectToPeers} creates long-lived gRPC client stubs
+(\texttt{raftpb.ElectionClient}) to all peers listed in \texttt{peers: map[NodeId]string}.
+These stubs are stored in \texttt{s.peerConns}. 
+Derp.\todo{}
