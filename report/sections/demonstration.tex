@@ -17,7 +17,7 @@ client.GetData("/bar", nil) # Should return nil
 \end{verbatim}
 
 We start 3 servers from the `server/` subdirectory with the command `go run main.go --id n` for each n in {1,3}.
-From the log outputs, we can see the three server nodes bind to ports 9001, 9002, and 9003 respectively.
+From the log outputs in \ref{fig:Leader Election}, we can see the three server nodes bind to ports 9001, 9002, and 9003 respectively.
 Furthermore, exactly one node (node 1 in the top right corner) achieves a quorum and thus is elected leader.
 Node 1 upon receiving a vote from node 2 achieves quorum, asserts itself as leader, and begins sending out 
 heartbeats in the form of empty AppendEntries messages.
@@ -51,7 +51,65 @@ client and the server node that serves it.
 \easyfigure{screenshots/Get.png}{\label{fig:GetData}}
 
 \subsection{Failure Scenarios}
-The primary failure scenario in our system is that at any time, nodes may crash. In this scenario, our
-system gracefully handles the crash while ensuring that committed log entries are not lost. This is 
-achieved through the election mechanism, which guarantees that only a node with an up-to-date view
-of the global state is elected leader. 
+Our failure model for the system involves the failure of individual nodes in the system. We divide this
+model into three different scenarios: follower failure, leader failure, and node recovery. 
+
+\subsubsection{Follower Failure}
+The first scenario is protected against both quorum model requirement. Raft guarantees that as long 
+as a quorum of nodes in the cluster are available, the service remains available and live. This is 
+because both the leader election protocol and the protocl for committing updates to the log. In
+order for a candidate to assert themselves as leader, they must receive votes from a quorum of
+the cluster. Likewise, in order to permanently commit a new entry to the log, the leader must
+receive acknowledgement from a quorum of nodes that they applied the entry via the AppendEntries
+RPC.
+
+In figure \ref{fig:Follower Death 1}, we see a healthy cluster with node 3 as leader and nodes
+1 and 2 as followers. In \ref{fig:Follower Death 2}, the test script kills node 1. Finally,
+in \ref{fig:Follower Death 3} the test script issues a write to node 2, which gets replicated
+across the cluster. This shows how even when nodes fail in the cluster, liveness is still
+guaranteed as long as a quorum remains alive.
+
+\easyfigure{screenshots/failure_follower_death-1.png}{\label{fig:Follower Death 1}}
+\easyfigure{screenshots/failure_follower_death-2.png}{\label{fig:Follower Death 2}}
+\easyfigure{screenshots/failure_follower_death-3.png}{\label{fig:Follower Death 3}}
+
+\subsubsection{Leader Failure}
+The second scenario is protected against by Raft's election protocol and Leader Completeness
+property. The Leader Completeness property states "if a log entry is committed in a given term, then 
+that entry will be present in the logs of the leaders for all higher-numbered terms" 
+\cite{ongaro_search_2014}. When a leader fails, one of the followers will eventually discover this 
+failure via the election timeout mechanism. We can see in \ref{fig:Leader Death 1} that the cluster 
+starts in a healthy state with node term 2 and the leader having a single committed entry. The 
+follower nodes both replicate the entry, but have not yet committed it to the state machine. In 
+\ref{fig:Leader Death 2} the leader crashes, and the cluster recovers by electing node 2 as leader. 
+Because the log entry was committed by the leader in term 2, and starting an election increments
+the term, this guarantees that the new leader will have the entry in its log. Finally, we again see
+in \ref{fig:Leader Death 3} that after recovering from the leader failure, the service remains
+available to process more write requests.
+
+\easyfigure{screenshots/failure_leader_death-1.png}{\label{fig:Leader Death 1}}
+\easyfigure{screenshots/failure_leader_death-2.png}{\label{fig:Leader Death 2}}
+\easyfigure{screenshots/failure_leader_death-3.png}{\label{fig:Leader Death 3}}
+
+\subsubsection{Node Recovery}
+The third scenario our system handles is the recovery of nodes after failure. When a node wants to
+rejoin the cluster, it needs to be able to catch up with the leader's logs. Periodically, the leader
+will send out heartbeats to all nodes in the cluster via AppendEntries messages. These messages
+serve two purposes: they act as a failure detector for detecting when a leader fails, and they
+enable the leader to propagate its log to the rest of the cluster. Through the `prevLogIndex` and 
+`prevLogTerm` parameters, the leader negotiates with its followers to figure out where the their
+logs diverge and which entries it needs to send for the recovering node to match its log to the
+leader's. 
+
+In \label{fig:Node Recovery 1}, we see an initial state with node 1 as leader, node 2
+dead, and node 3 as follower. The cluster agrees on four entries being committed to the log.
+Upon restarting node 2 in \label{fig:Node Recovery 2}, node 2 experiences an election timeout
+before it can receive any heartbeats from the leader. However, because both its term and
+log is behind the other two nodes, it fails to acqurie any votes. In \label{fig:Node Recovery 3},
+node 2 finally receives the AppendEntries message from the leader which contains all four of the
+committed entries. Because a quorum of nodes remained active, the recovering node 2 was able
+to rejoin the cluster and update its log to the current state of the leader.
+
+\easyfigure{screenshots/failure_node_recovery-1.png}{\label{fig:Node Recovery 1}}
+\easyfigure{screenshots/failure_node_recovery-2.png}{\label{fig:Node Recovery 2}}
+\easyfigure{screenshots/failure_node_recovery-3.png}{\label{fig:Node Recovery 3}}
