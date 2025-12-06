@@ -6,7 +6,7 @@ We expose our service via gRPC with Protocol Buffers, which provides a language-
 platform-agnostic interface for clients to interact between clients and servers. The Raft
 server implements the \texttt{RaftServer} gRPC service and uses generated stubs on both the 
 server and client side, allowing future clients to be written in any language supported by
-gRPC without changing the core consensus implementation.\todo{Have some sort of citation maybe}
+gRPC without changing the core consensus implementation\cite{grpc_intro}.
 
 \textbf{Openness}:
 The system is designed as a set of composable modules: the replicated log (\texttt{Log}), the
