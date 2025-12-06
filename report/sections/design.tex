@@ -22,12 +22,14 @@ the design isolates transport setup inside \texttt{connectToPeers}, so adding TL
 will be straightforward.
 
 \textbf{Failure Handling}:
-Raft provides deterministic leader election and log replication under crash failures.
-The follower nodes use randomized election timeouts to avoid split votes, and step up to
-the candidate role when they stop hearing from a leader. Candidates send \texttt{RequestVote}
-RPCs in parallel and step own when they see a higher term, while leaders periodically
-send empty \texttt{AppendEntries} (heartbeats) and perform log backtracking and truncation when
-followers' logs diverge.
+Raft provides safety and liveness guarantees under failures of any node in the cluster.
+The follower nodes use election timeouts and leader heartbeats to detect when a 
+leader fails. The election timeouts are randomized to avoid split votes which may occur
+when two nodes discover that the leader has failed at the same time. Candidates send \texttt{RequestVote}
+RPCs in parallel and step down when they see a higher term. Leaders periodically
+send empty \texttt{AppendEntries} messages as heartbeats and overwrite divergent follower logs
+that may occur under multiple leader failure scenarios.
+
 
 \textbf{Concurrency}:
 Each node runs a single Raft loop(\texttt{doLoop}) that dispatches into role-specific
@@ -38,6 +40,9 @@ changes confined to the state machine goroutine. Parallelism is used only for ou
 (e.g, parallel vote requests and AppendEntries to followers), ensuring a simple, mostly single-threaded
 correctness story while still utilizing concurrency for I/O.
 
+Client requests are processed concurrently, with isolation provided by the server node to
+ensure that conflicting transactions are processed in a serializable fashion.
+
 \textbf{Quality of Service}:
 Randomized election timeouts limit unecessary split vites, while periodic heartbeats prevent
 unnecessary elections during normal operation. The log module supports compaction (squashing)
@@ -45,9 +50,9 @@ and snapshotting so that old entries can be removed once safely replicated and a
 bounds memory usage and keeps replication latency low during long-running workloads.
 
 \textbf{Scalability}:
-The system scales horizontally by adding more Raft servers to the cluster. Clients talk to
-any node in the cluster\todo{MIGHT NEED TO CHANGE THIS}. Reads and writes are internally forwarded
-to the current leader, which serializes updates and replicates them to followers using AppendEntries.
+The system scales horizontally by adding more Raft servers to the cluster. Clients may talk to
+any node in the cluster. Reads and writes are internally forwarded
+to the current leader, which linearizes updates and replicates the new state to followers using AppendEntries.
 Because the replicated log is generic, different state machines can be plugged in to support different
 workloads without changing the consensus layer.
 
