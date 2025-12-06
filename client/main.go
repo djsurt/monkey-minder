@@ -42,38 +42,38 @@ func main() {
 		panic(err)
 	}
 
-	for {
+	for range 1 {
 		log.Println("Executing Create('/bar')...")
 		if <-client.Create("/bar", "meow") {
 			log.Println("Successfully created '/bar' w/ value 'meow'")
 		} else {
 			log.Println("Failed to create '/bar'")
 		}
-		<-time.After(20 * time.Second)
+		<-time.After(5 * time.Second)
 
 		log.Println("Executing GetData('/bar')...")
 		bar := <-client.GetData("/bar", nil)
 		log.Printf("Value of '/bar': %v\n", bar.Data)
-		<-time.After(20 * time.Second)
+		<-time.After(5 * time.Second)
 
 		log.Println("Executing SetData('/bar', 'bark')...")
 		<-client.SetData("/bar", "bark", -1)
-		<-time.After(20 * time.Second)
+		<-time.After(5 * time.Second)
 
 		log.Println("Executing GetData('/bar')...")
 		bar = <-client.GetData("/bar", nil)
-		fmt.Printf("New value of /bar: %v\n", bar)
-		<-time.After(20 * time.Second)
+		log.Printf("New value of /bar: %v\n", bar)
+		<-time.After(5 * time.Second)
 
 		log.Println("Executing Delete('/bar')...")
 		<-client.Delete("/bar", -1)
 		fmt.Println("Deleted /bar...")
-		<-time.After(20 * time.Second)
+		<-time.After(5 * time.Second)
 
 		log.Println("Attempting to GetData('/bar')...")
 		b := <-client.GetData("/bar", nil)
 		log.Printf("/bar after delete: %v\n", b)
-		<-time.After(20 * time.Second)
+		<-time.After(5 * time.Second)
 	}
 }
 
