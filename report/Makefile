@@ -20,6 +20,7 @@ clean-report:
 	latexmk -C report.tex
 	latexmk -C report.tex -jobname=report-draft
 	latexmk -C report.tex -jobname=report-nofigures
+	-find ./ \( -name '*.bbl' -or -name '*.tdo' \) -delete
 
 clean-diagrams:
 	-rm $(COMPILED_DIAGRAMS)

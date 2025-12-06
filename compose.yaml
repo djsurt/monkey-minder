@@ -73,6 +73,7 @@ services:
           include:
             - "**/*.tex"
             - "**/*.mmd"
+            - "**/*.bib"
           target: /dev/null
         - path: ./report/
           action: rebuild
@@ -96,6 +97,7 @@ services:
           include:
             - "**/*.tex"
             - "**/*.mmd"
+            - "**/*.bib"
           target: /dev/null
         - path: ./report/
           action: rebuild
