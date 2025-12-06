@@ -18,8 +18,8 @@ Zab and Raft are both equivalent to Paxos \todo{CITE}, Raft is more recent algor
 and used in popular services such as etcd and MongoDB \todo{CITE}. Additionally, 
 Raft claims to be a more understandable alternative to Paxos, a property that proved
 to make implementation easier. In order to use Raft, we had to relax its consistency
-guarnatee for reads, which provides for linearizable reads by forwarding all requests
-to the leader. ZooKeeper only provides monotonic reads from the perspective of 
+guaranatee for reads, which provides for linearizable reads by forwarding all requests
+to the leader \cite{ongaro_search_2014}. ZooKeeper only provides monotonic reads from the perspective of 
 individual clients. We modified our Raft implementation to allow reads to be served 
 locally from each replica, enabling high throughput for read-dominant workloads.
 
