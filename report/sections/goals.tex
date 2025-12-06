@@ -25,9 +25,12 @@ locally from each replica, enabling high throughput for read-dominant workloads.
 
 Third, we chose to use gRPC and Protocol buffers as our transport layer. gRPC is
 an RPC framework created by Google \todo{CITE}, and Protobufs are Google's language 
-independent serialization framework \todo{CITE}. We chose these tools due to their
-popularity in the industry and our desire to become acquainted with tools that
-we may encounter later in our careers.
+independent serialization framework \todo{CITE}. We chose these tools because they
+enable our system to operate on hetereogeneous platforms. By building our service
+as an RPC with Protobufs describing the serialization mechanism, we can leverage
+the wide implementation of these tools in a variety of languages to extend our
+client to other services. Additionally, both gRPC and Protbufs are popular in the 
+industry, and we wanted to gain familiarity with tools we may use in our careers.
 
 By building our project within these parameters, we hoped to gain practical
 experience navigating the unique challenges posed by distributed systems.
