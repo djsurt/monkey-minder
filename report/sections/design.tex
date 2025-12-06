@@ -238,7 +238,7 @@ Finally, the write path from client to replicated tree follows a similar sequenc
 corresponding log entry, replicates it to followers using \texttt{AppendEntries}, waits for a majority of successful 
 responses, advances the commit index, applies
 the entry to the local tree, triggers any relevant watches, and then replies to the client. This sequence ensures that externally visible
-state always reflectscommitted, majority-replicated updates.
+state always reflects committed, majority-replicated updates.
 
 \subsection{Log}
 \mmdfigure{log-diagram}{Log UML}
