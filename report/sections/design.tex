@@ -81,7 +81,7 @@ term.
 
 \subsubsection{Log and Snapshot Module}
 The replicated log is implemented as a generic, snapshot-aware data structure with an entry and a snapshot type.
-This enables easy integration with our heirarchical tree data store.
+This enables easy integration with our hierarchical tree data store.
 The replicated log maintains the following:
 (i) a \texttt{headSnapshot} representing the state up to the first stored entry,
 (ii) a \texttt{tailSnapshot} that is updated as new entries are appended,
