@@ -1,0 +1,59 @@
+@startuml
+
+
+' package doLoop {
+'     component doLeader {
+'     }
+'     component doCandidate {
+'     }
+'     component doFollower {
+'     }
+'     portout " " as doLoop.msgs
+' }
+component doLoop {
+    portout " " as doLoop.msgs
+}
+
+() clientMessagesIncoming
+() clientMessages
+
+component clientMessageScheduler {
+    port clientLeaderMessageDone
+}
+
+component handleClientMessage {
+}
+
+component clientSession {
+    port "request" as session.requestChan
+    port "response" as session.responseChan
+}
+
+component WatchManager {
+    portin watches
+    portout "completed" as consensusDone
+}
+
+component ClientMessage {
+    port DoLeaderForward
+    port DoMessage
+}
+
+clientMessagesIncoming <-- session.requestChan
+
+doLoop.msgs <-- clientMessages
+clientMessages <-- clientMessageScheduler
+doLoop.msgs --> handleClientMessage
+clientMessageScheduler <-- clientMessagesIncoming
+
+consensusDone --> clientLeaderMessageDone
+
+handleClientMessage --> watches
+handleClientMessage --> DoMessage
+handleClientMessage <-- DoMessage
+handleClientMessage --> DoLeaderForward
+
+
+consensusDone --> session.responseChan
+
+@enduml

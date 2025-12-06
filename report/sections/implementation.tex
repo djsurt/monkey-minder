@@ -211,3 +211,13 @@ and any watches whose predicates match this new entry will be removed from the l
 (\texttt{raftpb.ElectionClient}) to all peers listed in \texttt{peers: map[NodeId]string}.
 These stubs are stored in \texttt{s.peerConns}. 
 Derp.\todo{}
+
+\subsection{Client Message Scheduling}
+\easyfigure{implementation-components.puml.png}{Client Message Scheduling\label{fig:client-msg-scheduling}}
+Writes handled locally on a leader are implemented on top of our watch manager.
+As we don't immediately commit the new log entries, we can't respond to the messages immediately nor can we block until a response is received,
+so we instead register a watch for when the just-appended entry has been committed, to send the message and allow future messages to be processed.
+
+Writes on followers (not pictured above) instead use the client API for this, simply communicating with the leader as if they were just another client.
+
+
