@@ -1,1 +1,53 @@
-\todo[inline]{Demonstration section}
+\subsection{Success Scenarios}
+In a successful system run, we define a cluster of three nodes running the MonkeyMinder service.
+These nodes elect a single leader and begin servicing client requests. Then, a client connects to
+one of the nodes and issues a series of read and write requests. Reads should be served locally
+by the connected service, and writes should get forwarded to the leader. Upon receiving a quorum,
+the leader responds to the server that originated the write request, who forwards the response back
+to the client.
+
+To demonstrate this, we create a simple client that performs the following sequence of service calls:
+\begin{verbatim}
+client.Create("/bar", "meow") # Should succeed
+client.GetData("/bar", nil) # Should return "meow"
+client.SetData("/bar", "bark", -1) # Should succeed
+client.GetData("/bar", nil) # Should return "bark" eventually
+client.Delete("/bar", -1) # Should succeed
+client.GetData("/bar", nil) # Should return nil
+\end{verbatim}
+
+We start 3 servers from the `server/` subdirectory with the command `go run main.go --id n` for each n in {1,3}.
+From the log outputs, we can see the three server nodes bind to ports 9001, 9002, and 9003 respectively.
+Furthermore, exactly one node (node 1 in the top right corner) achieves a quorum and thus is elected leader.
+Node 1 upon receiving a vote from node 2 achieves quorum, asserts itself as leader, and begins sending out 
+heartbeats in the form of empty AppendEntries messages.
+
+\easyfigure{screenshots/Election.png}\label{fig:Leader Election}
+
+Next, launch the client application. The first thing the client does is try to create the node '/bar' with
+initial value 'meow'. Since the log is currently empty, this should succeed. Furthermore, because the client
+is connecting to node with `--id 2`, this Create request must be forwarded to the leader to ensure
+linearizability. This log shows that at 15:59:10, node 2 establishes a new client session. Behind the scenes,
+it receives the `Create` request and forwards it to the leader. Moving our attention to node 1 in the top
+right corner, at timestamp 15:59:10 node 1 (the leader) establishes a client session with node 1. Node 1
+receives the forwarded request. Then, it quietly applies the entry to its own log and sends out AppendEntries
+requests to its peers. We see at 15:59:11, node 2 is the first to receive the AppendEntries request that
+contains the new state after the Create request. Upon receiving node 2's AppendEntries response, node 1
+checks to see if it can commit the entry to the log. Since both node 1 and node 2 agree on the state of the
+log up to index 1, node 1 commits the new entry by advancing the commit index to 1. Then, node 1 checks
+if any watches have been set that trigger upon updates to the "/bar" znode. Indeed, when node 1 first
+received the forwarded Create request, it registered a watch on the "/bar" znode. So the watch fires,
+and node 1 sends a response to node 2 that the Create request succeeded. Node 2 forwards this result
+to the client so it can move forward with its next command.
+
+After confirming that the znode has been created, the client wants to check the value of the newly created
+znode at path "/bar". It sends out a `GetData` request to node 2. Because `GetData` is a read operation,
+node 2 can respond to the client by just reading its local state. Node 2 quietly processes this request
+which can be seen by client immediately receiving a value of 'meow'. Note also how no message was forwarded
+to the leader, and no log entries were created from processing this read. This demonstrates that read
+operations are extremely fast because they only require a single request-response pair between the
+client and the server node that serves it.
+
+\easyfigure{screenshots/Get.png}\label{fig:GetData}
+
+
