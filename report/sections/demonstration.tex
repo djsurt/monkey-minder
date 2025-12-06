@@ -52,15 +52,15 @@ client and the server node that serves it.
 
 \easyfigure{screenshots/Get.png}{\label{fig:GetData}Reading the znode's value with GetData}
 
-The remaining figures demonstrate the successful use of each of our service APIs. \ref{\label{fig:SetData}}
-demonstrates setting the value of a znode, which requires leader forwarding. \ref{\label{fig:Get Updated}}
-verifies that the updated value is read by the client. \ref{\label{fig:Delete}} demonstrates that znodes
+The remaining figures demonstrate the successful use of each of our service APIs. \ref{fig:SetData}
+demonstrates setting the value of a znode, which requires leader forwarding. \ref{fig:Get Updated}
+verifies that the updated value is read by the client. \ref{fig:Delete} demonstrates that znodes
 can be deleted. Finally, \label{fig:Get After Delete} shows that after a delete, a read on the node returns
 a nil value.
 
 
 \easyfigure{screenshots/Set.png}{\label{fig:SetData}Updating the znode's value with SetData}
-\easyfigure{screenshots/GetUpdated.png}{\label{fig:Get Updated}Reading the updated value}
+\easyfigure{screenshots/Get_Updated.png}{\label{fig:Get Updated}Reading the updated value}
 \easyfigure{screenshots/Delete.png}{\label{fig:Delete}Deleting the znode}
 \easyfigure{screenshots/Get_Deleted.png}{\label{fig:Get After Delete}Reading the znode after deletion}
 
