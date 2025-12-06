@@ -14,8 +14,8 @@ concurrency primitives. Instead, we relied almost exclusively on Go's channel pr
 for managing concurrent access to shared resources.
 
 Second, instead of Zab we chose to utilize the Raft consensus algorithm. While
-Zab and Raft are both equivalent to Paxos \todo{CITE}, Raft is more recent algorithm
-and used in popular services such as etcd and MongoDB \todo{CITE}. Additionally, 
+Zab and Raft are both equivalent to Paxos \cite{wang_parallels_2019, junqueira_barriers_2015}, Raft is more recent algorithm
+and used in popular services such as etcd and MongoDB used in popular services such as etcd and MongoDB \cite{etcd_raft, zhou_mongodb_2021}. Additionally, 
 Raft claims to be a more understandable alternative to Paxos, a property that proved
 to make implementation easier. In order to use Raft, we had to relax its consistency
 guaranatee for reads, which provides for linearizable reads by forwarding all requests
@@ -24,8 +24,8 @@ individual clients. We modified our Raft implementation to allow reads to be ser
 locally from each replica, enabling high throughput for read-dominant workloads.
 
 Third, we chose to use gRPC and Protocol buffers as our transport layer. gRPC is
-an RPC framework created by Google \todo{CITE}, and Protobufs are Google's language 
-independent serialization framework \todo{CITE}. We chose these tools because they
+an RPC framework created by Google \cite{grpc_google}, and Protobufs are Google's language 
+independent serialization framework \cite{protobuf_google}. We chose these tools because they
 enable our system to operate on hetereogeneous platforms. By building our service
 as an RPC with Protobufs describing the serialization mechanism, we can leverage
 the wide implementation of these tools in a variety of languages to extend our
