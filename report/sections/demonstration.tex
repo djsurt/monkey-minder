@@ -50,4 +50,8 @@ client and the server node that serves it.
 
 \easyfigure{screenshots/Get.png}\label{fig:GetData}
 
-
+\subsection{Failure Scenarios}
+The primary failure scenario in our system is that at any time, nodes may crash. In this scenario, our
+system gracefully handles the crash while ensuring that committed log entries are not lost. This is 
+achieved through the election mechanism, which guarantees that only a node with an up-to-date view
+of the global state is elected leader. 
