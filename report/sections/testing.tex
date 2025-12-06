@@ -2,35 +2,73 @@ To validate linearizability, monotonic reads, cross-node consistency, and failur
 we designed a set of test cases across 3 to 5 node clusers. Each test is described with its setup, actions, observations,
 and expected results.
 
-\subsection{Linearizable Writes: Single-Leader Sequential Create/Update}
-\textbf{Setup:} Three-node cluster. A Leader $L$ is elected. A client $C_1$ is connected to $L$.
+\todo[inline]{Adrian - maybe talk about testing library stuff here}
 
-\textbf{Actions:}
-\begin{enumerate}
-    \item $C_1$: \texttt{Create("/foo", "v1")}
-    \item $C_1$: \texttt{SetData("/foo", "v2", -1)}
-    \item $C_1$: \texttt{SetData("/foo", "v3", -1)}
-    \item After each write, $C_1$ immediately issues \texttt{GetData("/foo")}.
-\end{enumerate}
+\todo[inline]{should say a little more about why these tests demonstrate these properties maybe}
 
-\textbf{Expected Result:} Reads return \emph{v1}, then \emph{v2}, then \emph{v3} in strict order.
-No reordering, skipping or stale values.
+\newcommand{\testitemSetup}{\item[] \hspace*{-4mm}\textbf{Setup:} }
+\newcommand{\testitemExpect}{\item[] \hspace*{-4mm}\textbf{Expect:} }
+\newcommand{\testitem}{\item}
+\newcommand{\testitemClientaction}{\item[]}
+\newcommand{\testFmtMessage}[4]{\(#1\rightarrow#2:\texttt{#3}\left(\text{\texttt{#4}}\right)\)}
 
-\subsection{Linearizable Writes: Concurrent Writes Ordered by Leader}
+\subsection{Sequential writes to leader}
+\begin{itemize}
+    \testitemSetup Create a three-node cluster, and start all nodes.
+    \testitem Wait for a node (hereafter denoted as $L$) to be elected leader.
+    \testitem Begin a client session $c$ to $L$.
+    \begin{itemize}
+        \testitemClientaction \testFmtMessage{c}{L}{Create}{/foo, "A"}
+        \testitemClientaction \testFmtMessage{c}{L}{SetData}{/foo, "B", -1}
+        \testitemClientaction \testFmtMessage{c}{L}{SetData}{/foo, "C", -1}
+    \end{itemize}
+    \testitemExpect Between each \codeterm{Create} / \codeterm{SetData}, $c$ reads \texttt{/foo}.
+    Those reads should return \texttt{"A"}, then \texttt{"B"}, then \texttt{"C"}, in strict order.
+\end{itemize}
 
-\textbf{Setup:} Three-node cluster. Clients $C_1$ and $C_2$ connected to Leader $L$.
+% \subsection{Concurrent writes ordered by leader}
+\subsection{Concurrent writes to leader}
+\begin{itemize}
+    \testitemSetup Create a three-node cluster, and start all nodes.\\
+        Initialize field \texttt{/foo} to \texttt{"X"}.
+    \testitem Wait for a node (hereafter denoted as $L$) to be elected leader.
+    \testitem Begin client sessions $c_1$ and $c_2$ to $L$.\\
+    Concurrently:
+    \begin{itemize}
+        \testitemClientaction \testFmtMessage{c_1}{L}{SetData}{/foo, "A", -1}
+        \testitemClientaction \testFmtMessage{c_2}{L}{SetData}{/foo, "B", -1}
+    \end{itemize}
+    \testitemExpect After both clients are finished, all clients read the same value for \texttt{/foo}.
+\end{itemize}
 
-\textbf{Actions:} $C_1$ and $C_2$ concurrently issue \texttt{SetData("/bar", "A", -1)}
-and \texttt{SetData("/bar", "B", -1)}.
+% \textbf{Expected Result:} All nodes converge on a single final value in the leader's chosen
+% serialization order (either $A \rightarrow B$ or $B \rightarrow A$).
+% No interleaving or non-linearizable outcomes.
 
-\textbf{Observation:} After success, all clients read \texttt{GetData("/bar")} on $C_1$,
-$C_2$, and follower $F$.
 
-\textbf{Expected Result:} All nodes converge on a single final value in the leader's chosen
-serialization order (either $A \rightarrow B$ or $B \rightarrow A$).
-No interleaving or non-linearizable outcomes.
+% \begin{samepage}
+\subsection{Monotonic Reads}
+\begin{itemize}
+    \testitemSetup Create a three-node cluster, and start all nodes.\\
+        Initialize field \texttt{/m} to \texttt{"0"}.
+    \testitem Wait for a node (hereafter denoted as $L$) to be elected leader.\\
+        Denote one of the two remaining nodes as $F$.
+    \testitem Begin a client session $c_L$ to $L$.
+    \begin{itemize}
+        \testitemClientaction \testFmtMessage{c_L}{L}{SetData}{/m, "1", -1}
+        \testitemClientaction Wait for 2 seconds.
+        \testitemClientaction \testFmtMessage{c_L}{L}{SetData}{/m, "2", -1}
+    \end{itemize}
+    \testitem Concurrently, begin a client session $c_F$ to $F$.
+    \begin{itemize}
+        \testitemClientaction Repeat \testFmtMessage{c_F}{F}{GetData}{/m}
+    \end{itemize}
+    \testitemExpect $c_F$ should never receive \texttt{"0"} after it has received one of \(\{\texttt{"1"}, \texttt{"2"}\}\).
+    \testitemExpect $c_F$ should never receive \texttt{"1"} after it has received \texttt{"2"}.
+    \testitemExpect $c_F$ should eventually receive \texttt{"2"}.
+\end{itemize}
+% \end{samepage}
 
-% \subsection{Monotonic Reads}
 % \subsubsection{Test 3: Read-Only Client Monotonicity}
 %
 % \textbf{Setup:} Client $C_3$ reads from $F$. Leader $L$ performs updates.
@@ -70,40 +108,29 @@ No interleaving or non-linearizable outcomes.
 % \textbf{Expected Result:} All nodes converge to ``beta''. No node returns a value outside the committed sequence.
 % Temporary follower lag is acceptable.
 
-\subsection{Leader Election: Killed Leader Causes Election}
+\subsection{Leader election initiated after leader death}
+\begin{itemize}
+    \testitemSetup Create a five-node cluster, and start all nodes.
+    \testitem Wait for a node (hereafter denoted as $L_1$) to be elected leader.
+    \testitem Kill $L_1$.
+    \testitemExpect After some time has passed, leader election should occur, and a new leader $L_2$ should have been elected.
+\end{itemize}
 
-\textbf{Setup:} Five-node cluster.
-
-\textbf{Actions:}
-\begin{enumerate}
-    \item Start all five nodes.
-    \item Wait for initial election to occur.
-    \item Kill current leader node.
-    \item Wait some time for election timeouts to occur.
-    \item After that time has passed, there should be a new leader.
-\end{enumerate}
-
-\todo[inline]{observation, expected results}
-
-\subsection{Leader Election: Restarting Enough Nodes Unblocks Election}
-
-\textbf{Setup:} Five-node cluster.
-
-\textbf{Actions:}
-\begin{enumerate}
-    \item Start all five nodes.
-    \item Wait for initial election to occur.
-    \item Kill current leader node and two additional follower nodes, leaving a total of $2$ of $5$ nodes alive.
-    \item Wait some to see if a leader is elected.
-    \item Restart one of the killed followers, bringing us back up to $3$ of $5$ nodes alive.
-    \item Wait some additional time, and a leader should now actually be elected.
-\end{enumerate}
-
-\textbf{Observation:} On step 4, no leader should ever be elected. On step 6, a leader should be elected.
-
-\textbf{Expected Result:} No leader is elected when there is not a majority alive.
-Once there is a majority alive, there should eventually be a leader elected.
-
+\subsection{Leader election requires majority}
+\begin{itemize}
+    \testitemSetup Create a five-node cluster, and start all nodes.
+    \testitem Wait for a node (hereafter denoted as $L_1$) to be elected leader.
+    \testitem Kill $L_1$.
+    \testitemExpect After some time has passed, leader election should occur, and a new leader (denoted as $L_2$) should have been elected.
+    \testitem Kill $L_2$.
+    \testitemExpect After some time has passed, leader election should occur, and a new leader (denoted as $L_3$) should have been elected.
+    \testitem Kill $L_3$.
+    \testitemExpect No leader is elected.\\
+        As a majority of nodes are not alive, it should be impossible for any remaining node to win an election.
+    \testitem Restart $L_2$.
+    \testitemExpect After some time has passed, leader election should occur, and a new leader should be elected.\\
+        Now that there is once again a majority of nodes alive, leader election is able to proceed.
+\end{itemize}
 
 % \subsubsection{Failure Recovery}
 % \subsubsection{Test 6: Leader Crash After Append, Before Commit}
@@ -155,13 +182,3 @@ Once there is a majority alive, there should eventually be a leader elected.
 % \textbf{Expected Result:}
 % Notifications fire for \texttt{/p/a} (child created) and \texttt{/p} (deleted).
 % No notification for grandchild \texttt{/p/a/b}, consistent with ZooKeeper semantics.
-
-\subsection{Operational Parameters}
-\begin{itemize}
-    \item Cluster sizes tested: 3-node and 5-node.
-    \item Timing: heartbeat interval and election timeout ranges.
-    \item Failure modes: crash-stop, network partitions.
-    \item Client placement: leader-connected vs. \ follower-connected vs. \ migrating.
-    \item Metrics recorded: commit index progression, read sequences, convergence time, 
-    leadership transitions.
-\end{itemize}
