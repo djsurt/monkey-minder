@@ -214,10 +214,13 @@ Derp.\todo{}
 
 \subsection{Client Message Scheduling}
 \easyfigure{implementation-components.puml.png}{Client Message Scheduling\label{fig:client-msg-scheduling}}
+Figure~\ref{fig:client-msg-scheduling} demonstrates how client messages are scheduled.
+
 Writes handled locally on a leader are implemented on top of our watch manager.
 As we don't immediately commit the new log entries, we can't respond to the messages immediately nor can we block until a response is received,
 so we instead register a watch for when the just-appended entry has been committed, to send the message and allow future messages to be processed.
-
-Writes on followers (not pictured above) instead use the client API for this, simply communicating with the leader as if they were just another client.
+Writes on followers (not pictured) instead use the client API for this, simply communicating with the leader as if they were just another client.
+The added layer of \texttt{clientMessageScheduler} is necissary as we need to not process any further client messages until
+the current write is completed.
 
 
