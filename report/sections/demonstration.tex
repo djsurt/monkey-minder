@@ -17,19 +17,19 @@ client.GetData("/bar", nil) # Should return nil
 \end{verbatim}
 
 We start 3 servers from the `server/` subdirectory with the command `go run main.go --id n` for each n in {1,3}.
-From the log outputs in \ref{fig:Leader Election}, we can see the three server nodes bind to ports 9001, 9002, and 9003 respectively.
-Furthermore, exactly one node (node 1 in the top right corner) achieves a quorum and thus is elected leader.
-Node 1 upon receiving a vote from node 2 achieves quorum, asserts itself as leader, and begins sending out 
-heartbeats in the form of empty AppendEntries messages.
+From the log outputs in \ref{fig:Leader Election}, we can see the three server nodes bind to ports 9001, 9002, 
+and 9003 respectively. Furthermore, exactly one node (node 1 in the top right corner) achieves a quorum and 
+thus is elected leader. Node 1 upon receiving a vote from node 2 achieves quorum, asserts itself as leader, 
+and begins sending out heartbeats in the form of empty AppendEntries messages.
 
-\easyfigure{screenshots/Election.png}{\label{fig:Leader Election}}
+\easyfigure{screenshots/Election.png}{\label{fig:Leader Election}Electing a leader}
 
-Next, launch the client application. The first thing the client does is try to create the node '/bar' with
-initial value 'meow'. Since the log is currently empty, this should succeed. Furthermore, because the client
-is connecting to node with `--id 2`, this Create request must be forwarded to the leader to ensure
-linearizability. This log shows that at 15:59:10, node 2 establishes a new client session. Behind the scenes,
-it receives the `Create` request and forwards it to the leader. Moving our attention to node 1 in the top
-right corner, at timestamp 15:59:10 node 1 (the leader) establishes a client session with node 1. Node 1
+Next, we launch the client application in \ref{fig:Create}. The first thing the client does is try to create 
+the node '/bar' with initial value 'meow'. Since the log is currently empty, this should succeed. Furthermore, 
+because the client is connecting to node with `--id 2`, this Create request must be forwarded to the leader to 
+ensure linearizability. This log shows that at 15:59:10, node 2 establishes a new client session. Behind the 
+scenes, it receives the `Create` request and forwards it to the leader. Moving our attention to node 1 in the 
+top right corner, at timestamp 15:59:10 node 1 (the leader) establishes a client session with node 1. Node 1
 receives the forwarded request. Then, it quietly applies the entry to its own log and sends out AppendEntries
 requests to its peers. We see at 15:59:11, node 2 is the first to receive the AppendEntries request that
 contains the new state after the Create request. Upon receiving node 2's AppendEntries response, node 1
@@ -40,6 +40,8 @@ received the forwarded Create request, it registered a watch on the "/bar" znode
 and node 1 sends a response to node 2 that the Create request succeeded. Node 2 forwards this result
 to the client so it can move forward with its next command.
 
+\easyfigure{screenshots/Create.png}{\label{fig:Create}Creating a znode}
+
 After confirming that the znode has been created, the client wants to check the value of the newly created
 znode at path "/bar". It sends out a `GetData` request to node 2. Because `GetData` is a read operation,
 node 2 can respond to the client by just reading its local state. Node 2 quietly processes this request
@@ -48,7 +50,19 @@ to the leader, and no log entries were created from processing this read. This d
 operations are extremely fast because they only require a single request-response pair between the
 client and the server node that serves it.
 
-\easyfigure{screenshots/Get.png}{\label{fig:GetData}}
+\easyfigure{screenshots/Get.png}{\label{fig:GetData}Reading the znode's value with GetData}
+
+The remaining figures demonstrate the successful use of each of our service APIs. \ref{\label{fig:SetData}}
+demonstrates setting the value of a znode, which requires leader forwarding. \ref{\label{fig:Get Updated}}
+verifies that the updated value is read by the client. \ref{\label{fig:Delete}} demonstrates that znodes
+can be deleted. Finally, \label{fig:Get After Delete} shows that after a delete, a read on the node returns
+a nil value.
+
+
+\easyfigure{screenshots/Set.png}{\label{fig:SetData}Updating the znode's value with SetData}
+\easyfigure{screenshots/GetUpdated.png}{\label{fig:Get Updated}Reading the updated value}
+\easyfigure{screenshots/Delete.png}{\label{fig:Delete}Deleting the znode}
+\easyfigure{screenshots/Get_Deleted.png}{\label{fig:Get After Delete}Reading the znode after deletion}
 
 \subsection{Failure Scenarios}
 Our failure model for the system involves the failure of individual nodes in the system. We divide this
@@ -69,9 +83,9 @@ in \ref{fig:Follower Death 3} the test script issues a write to node 2, which ge
 across the cluster. This shows how even when nodes fail in the cluster, liveness is still
 guaranteed as long as a quorum remains alive.
 
-\easyfigure{screenshots/failure_follower_death-1.png}{\label{fig:Follower Death 1}}
-\easyfigure{screenshots/failure_follower_death-2.png}{\label{fig:Follower Death 2}}
-\easyfigure{screenshots/failure_follower_death-3.png}{\label{fig:Follower Death 3}}
+\easyfigure{screenshots/failure_follower_death-1.png}{\label{fig:Follower Death 1}Failure scenario 1: A healthy cluster}
+\easyfigure{screenshots/failure_follower_death-2.png}{\label{fig:Follower Death 2}Failure scenario 1: A follower dies}
+\easyfigure{screenshots/failure_follower_death-3.png}{\label{fig:Follower Death 3}Failure scenario 1: The cluster continues serving clients}
 
 \subsubsection{Leader Failure}
 The second scenario is protected against by Raft's election protocol and Leader Completeness
@@ -87,9 +101,9 @@ the term, this guarantees that the new leader will have the entry in its log. Fi
 in \ref{fig:Leader Death 3} that after recovering from the leader failure, the service remains
 available to process more write requests.
 
-\easyfigure{screenshots/failure_leader_death-1.png}{\label{fig:Leader Death 1}}
-\easyfigure{screenshots/failure_leader_death-2.png}{\label{fig:Leader Death 2}}
-\easyfigure{screenshots/failure_leader_death-3.png}{\label{fig:Leader Death 3}}
+\easyfigure{screenshots/failure_leader_death-1.png}{\label{fig:Leader Death 1}Failure scenario 2: A healthy cluster}
+\easyfigure{screenshots/failure_leader_death-2.png}{\label{fig:Leader Death 2}Failure scenario 2: The leader dies; a new leader is elected}
+\easyfigure{screenshots/failure_leader_death-3.png}{\label{fig:Leader Death 3}Failure scenario 2: The cluster continues serving clients}
 
 \subsubsection{Node Recovery}
 The third scenario our system handles is the recovery of nodes after failure. When a node wants to
@@ -110,6 +124,6 @@ node 2 finally receives the AppendEntries message from the leader which contains
 committed entries. Because a quorum of nodes remained active, the recovering node 2 was able
 to rejoin the cluster and update its log to the current state of the leader.
 
-\easyfigure{screenshots/failure_node_recovery-1.png}{\label{fig:Node Recovery 1}}
-\easyfigure{screenshots/failure_node_recovery-2.png}{\label{fig:Node Recovery 2}}
-\easyfigure{screenshots/failure_node_recovery-3.png}{\label{fig:Node Recovery 3}}
+\easyfigure{screenshots/failure_node_recovery-1.png}{\label{fig:Node Recovery 1}Failure scenario 3: A node is dead}
+\easyfigure{screenshots/failure_node_recovery-2.png}{\label{fig:Node Recovery 2}Failure scenario 3: The node rejoins the cluster}
+\easyfigure{screenshots/failure_node_recovery-3.png}{\label{fig:Node Recovery 3}Failure scenario 3: The recovered node catches up to the leader's log}
