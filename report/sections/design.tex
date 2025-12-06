@@ -57,8 +57,8 @@ Because the replicated log is generic, different state machines can be plugged i
 workloads without changing the consensus layer.
 
 \textbf{Transparency}:
-Clients interact with the system as if it were a single, ZooKeeper-like service with a heirarchical
-namespace. They are don't know which node is currently the leader, when failovers occur, or how many replicas
+Clients interact with the system as if it were a single, ZooKeeper-like service with a hierarchical
+namespace. They are do not need to know whether the node they communicate with is the leader, when failovers occur, or how many replicas
 exist in the cluster. Leader elecion, log replication, and commit-index management are all hidden behind the
 API, providing failure transparency and location transparency.
 
