@@ -1,27 +1,29 @@
 ZooKeeper achieves consensus through the ZooKeeper Atomic Broadcast (Zab)
-protocol, which is a leader-based atomic broadcast system designed to ensure
-consistent state replication across nodes [1]. Zab shares some conceptual similarities
-with the Raft algorithm, such as leader election and log replication, but was developed
-independently [3]. Since Raft has become widely adopted and is designed to be
+protocol~\cite{junqueira_zab_2011}, which is a leader-based atomic broadcast system designed to ensure
+consistent state replication across nodes~\cite{hunt_zookeeper_2010}. Zab shares some conceptual similarities
+with the Raft algorithm~\cite{ongaro_search_2014}, such as leader election and log replication, but was developed
+independently. Since Raft has become widely adopted and is designed to be
 understandable, we will elect to use Raft to provide both leader election and
 consistency in our implementation.
+
 Much research has been done to improve the performance and consistency of Raft
-under failure scenarios. For instance, in [4] Kim et al. explored improving leader-based
+under failure scenarios. For instance, Kim et al.~\cite{kim_improved_2021} explored improving leader-based
 consensus algorithms such as Raft using federated learning to enhance stability and
-performance. Furthermore, Liu et. al has suggested improvements in both performance
+performance. Furthermore, Liu et al.~\cite{liu_optimized_2022} has suggested improvements in both performance
 and strict consistency guarantees over the original Raft algorithm by requiring strong
-consistency of followers logs [5]. They show that their accelerated log backtracking Raft
+consistency of followers logs. They show that their accelerated log backtracking Raft
 algorithm can reduce the number of RPCs required to resolve log conflicts under
-multiple leader election failure scenarios [5]. Similarly, Liu et Al. (2023) propose an
+multiple leader election failure scenarios. Similarly, Liu et al.~\cite{liu_optimized_2023} propose an
 optimized Raft algorithm (SS-Raft) that incorporates snapshot-based log compression
 to reduce excessive log growth during replication and improve recovery under unreliable
-networks and churn failures [6]. Finally, Paznikov et. al proposes a leaderless approach
-to atomic broadcast using the actor model of concurrency [7]; while the actor model
+networks and churn failures. Finally, Paznikov et al.~\cite{paznikov_implementation_2020} proposes a leaderless approach
+to atomic broadcast using the actor model of concurrency; while the actor model
 approach is appealing to us, we think designing a ZooKeeper service around the actor
 model is a more appropriate topic for subsequent research projects.
+
 Building on these ideas, our project will use Raft atomic broadcast to achieve strong
 consistency among replicas. In particular, we draw inspiration from recent research
-such as [8], which demonstrates that atomic broadcast can be achieved efficiently
+such as Sui et al.~\cite{sui_signature-free_2025}, which demonstrates that atomic broadcast can be achieved efficiently
 through a reduction from multivalued Byzantine Agreement (MBA) while avoiding heavy
-cryptographic signatures, and from [9] S. Mane et. al which proposes additions to
+cryptographic signatures, and from Mane et al.~\cite{mane_verify_2023} which proposes additions to
 ZooKeeper which give it better resilience against Byzantine faults.
