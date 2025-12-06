@@ -118,7 +118,7 @@ outdated state.
 
 \subsubsection{Application-Level Command Processing}
 
-Client operations are expressed as implementations of the \texttt{ClientMessage} interface. Each message type(
+Client operations are expressed as implementations of the \texttt{ClientMessage} interface. Each message type (
 \texttt{Create}, \texttt{Delete}, \texttt{SetData}, \texttt{Exists}, \texttt{GetData}, and \texttt{GetChildren}) 
 encapsulates the semantics of a client request. Messages specify whether they must run on the leader (\texttt{IsLeaderOnly}) and define how to produce new log
 entries through \texttt{DoMessage}. Read-only commands generate no log entries and operate directly on the snapshot of the tree maintained by the server. By contrast, write operations produce a list of \texttt{LogEntry} structures that
@@ -136,7 +136,7 @@ channel is fired and the watch is removed. Watches are checked during leader com
 notifications reflect globally committed state.
 
 \subsubsection{Tree State Machine}
-The state machine that is replicated by Raft is a heirarchical \texttt{Tree} structure that closely
+The state machine that is replicated by Raft is a hierarchical \texttt{Tree} structure that closely
 models ZooKeeper's znode abstraction. Each node in the tree has a name, associated data, a version number, and a set of children.
 Operations such as \texttt{Create}, \texttt{Update}, and \texttt{Delete} modify the tree deterministically.
 Because these operations are deterministic and their arguments are captured precisely in \texttt{LogEntry} values,
