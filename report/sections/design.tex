@@ -177,47 +177,47 @@ receive responses that reflect a linearizable history of writes and monotonic
 reads. Leader election, log replication, commit-index management, and watch
 delivery all occur behind the scenes within the Raft layer.
 
-\subsubsection{Use-Case View}
+% \subsubsection{Use-Case View}
 
-Figure~\ref{fig:usecase} presents a use-case style view of the system from the
-client’s perspective. The primary actor is a generic client application that
-interacts with the our data service. The main use cases include
-creating znodes, updating data, reading data, listing children, deleting znodes,
-and registering watches for changes. An operator or administrator actor may
-perform management-oriented operations such as enumerating znodes or cleaning up
-application state.
+% Figure~\ref{fig:usecase} presents a use-case style view of the system from the
+% client’s perspective. The primary actor is a generic client application that
+% interacts with the our data service. The main use cases include
+% creating znodes, updating data, reading data, listing children, deleting znodes,
+% and registering watches for changes. An operator or administrator actor may
+% perform management-oriented operations such as enumerating znodes or cleaning up
+% application state.
 
-\mmdfiguretodo{usecase-overview}{System use-case overview.\label{fig:usecase}}
+% \mmdfiguretodo{usecase-overview}{System use-case overview.\label{fig:usecase}}
 
-This diagram emphasizes that clients treat the service as a single logical
-coordination point, even though it is backed by multiple Raft replicas.
+% This diagram emphasizes that clients treat the service as a single logical
+% coordination point, even though it is backed by multiple Raft replicas.
 
-\subsubsection{Deployment and Component View}
+% \subsubsection{Deployment and Component View}
 
-Figure~\ref{fig:deployment} shows a combined deployment and component view of
-the system. On the left, client processes (e.g., our Go client tool) run on
-arbitrary hosts and open gRPC connections to any server in the Raft cluster. On
-the right, the cluster consists of three to five \texttt{RaftServer} processes,
-each hosting:
+% Figure~\ref{fig:deployment} shows a combined deployment and component view of
+% the system. On the left, client processes (e.g., our Go client tool) run on
+% arbitrary hosts and open gRPC connections to any server in the Raft cluster. On
+% the right, the cluster consists of three to five \texttt{RaftServer} processes,
+% each hosting:
 
-\begin{itemize}
-  \item a \emph{ClientSession} component, which terminates client RPCs and
-        translates them into \texttt{ClientMessage} instances,
-  \item the \emph{Raft core}, which implements leader election, term tracking,
-        log replication, and commit-index advancement, and
-  \item the \emph{Tree state machine}, which applies committed log entries to
-        maintain the hierarchical znode namespace.
-\end{itemize}
+% \begin{itemize}
+%   \item a \emph{ClientSession} component, which terminates client RPCs and
+%         translates them into \texttt{ClientMessage} instances,
+%   \item the \emph{Raft core}, which implements leader election, term tracking,
+%         log replication, and commit-index advancement, and
+%   \item the \emph{Tree state machine}, which applies committed log entries to
+%         maintain the hierarchical znode namespace.
+% \end{itemize}
 
-Servers communicate with each other exclusively via Raft RPCs
-(\texttt{RequestVote} and \texttt{AppendEntries}) over gRPC channels. The
-underlying network is assumed to provide reliable message delivery with possible
-delays, reordering, and crash-stop failures.
+% Servers communicate with each other exclusively via Raft RPCs
+% (\texttt{RequestVote} and \texttt{AppendEntries}) over gRPC channels. The
+% underlying network is assumed to provide reliable message delivery with possible
+% delays, reordering, and crash-stop failures.
 
-\mmdfiguretodo{deployment}{Cluster deployment and component diagram.\label{fig:deployment}}
+% \mmdfiguretodo{deployment}{Cluster deployment and component diagram.\label{fig:deployment}}
 
-This diagram highlights both the physical layout (distributed servers and
-clients) and the logical decomposition of each server process into components.
+% This diagram highlights both the physical layout (distributed servers and
+% clients) and the logical decomposition of each server process into components.
 
 \subsubsection{Dynamic Interaction and Sequence Views}
 
