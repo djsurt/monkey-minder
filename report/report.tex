@@ -2,7 +2,7 @@
 \usepackage[T1]{fontenc}
 \usepackage{lmodern}
 \usepackage[utf8]{inputenc}
-\usepackage{babel}
+\usepackage[english]{babel}
 \usepackage[pdfusetitle,
  bookmarks=true,bookmarksnumbered=false,bookmarksopen=false,
  breaklinks=false,pdfborder={0 0 1},backref=false,colorlinks=false]
@@ -77,6 +77,18 @@
 
 \newcommand{\todocritical}[2][]{\todo[color=red, caption={CRITICAL: #2}, #1]{#2}}
 \newcommand{\todonitpick}[2][]{\todo[color=cyan, caption={nitpick: #2}, #1]{#2}}
+
+
+\AtEveryBibitem{%
+    \ifentrytype{online}{}{
+        \clearfield{url}
+        \clearfield{urldate}
+        \clearfield{urlyear}
+        \clearfield{urlmonth}
+        \clearfield{urlday}
+    }
+}
+
 
 \begin{document}
 
