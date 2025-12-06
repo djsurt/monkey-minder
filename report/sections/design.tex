@@ -67,7 +67,7 @@ API, providing failure transparency and location transparency.
 \subsubsection{RaftServer and Node Roles}
 The \texttt{RaftServer} type represents a single Raft node. It maintains the node identity (\texttt{Id}), peer addresses,
 current role (\texttt{FOLLOWER}, \texttt{CANDIDATE}, \texttt{LEADER}), current term, the node it voted for,
-gRPC server state, a replicated log, and per-RPC channels for AppendEntries and RequestVote. 
+gRPC server state, a replicated log, and separate channels for AppendEntries and RequestVote RPC messages.
 
 The lifecycle is driven by the \texttt{doLoop}, which dispatches to state-specific loops. The {doFollower}
 loop waits for AppendEntries and RequestVote requests. It resets its election timer on each valid interaction.
