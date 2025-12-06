@@ -1,1 +1,50 @@
-\todo[inline]{Conclusions section}
+Through our work on this project, we implemented algorithms to ensure replication
+consistency, leader election, and causal ordering. We learned the inner mechanics of
+the Raft consensus algorithm, which is widely used in many industry applications.
+We learned how to reason about the tradeoffs between different consistency models, 
+namely linearizability and eventual consistency. While linearizability provides
+the greatest safety guarantees, it can greatly reduce throughput and availability
+as all requests must be forwarded to the leader. From studying ZooKeeper and
+implementing a similar service, we learned how linearizabile writes combined with
+monotonic reads can provide a fair compromise between strict consistency and 
+throughput. For many use cases, these guarantees are sufficient to provide a
+useful service, especially if these guarantees are accompanied by a mechanism
+for notifying clients of changes to state.
+
+\subsection{Key Takeaways}
+The biggest lesson we learned from this project is the necessity of carefully
+planning the system's design. Due to our eagerness to get moving on implementation,
+our initial design overlooked some details related to the coupling of the
+consensus and service layers. Had we spent more time carefully considering the
+implications of our design decisions, we could have produced a server application
+with looser coupling between these two layers which would make our system
+more extensible and thus provide greater openness.
+
+Another key takeaway from this project was the use of the Communicating Sequential
+Processes concurrency model. We used channels to pass messages between threads,
+and this mechanism proved to be extremely powerful. To use this paradigm
+effectively, we learned many techniques for managing shared channels.
+Most importantly, we learned to carefully managing ownership of channels via
+containment to ensure that no process ever tried to write to a closed channel.
+We also utilized the fan-out, fan-in technique in the candidate loop to send out
+RequestVote messages to all peers. In doing so, we leveraged parallelism to
+achieve greater throughput while retaining thread safety.
+
+\subsection{Future Improvements}
+Our system has many room for improvements. First, we would like to redesign the
+interactions between the service and consensus layers. This would provide a stable
+starting point for future modifications. Additionally, we would like to fully
+implement our watch and notify mechanism. While the infrastructure is in place for 
+registering and managing watches and is indeed in use to notify the leader when a 
+transaction has been committed, we would like to extend this functionality to our 
+service layer. This would enable clients to subscribe for notifications of updates
+to znodes for which they are concerned, and enable replica nodes to publish
+these notifications upon mutations to the relevant znodes.
+
+Additionally, we would like to add functionality to the client library that 
+automatically handles migrating the client between different server nodes.
+Currently, when a server fails each client that is connected to it must manually
+connect to a new server node. We would like to abstract from the client both 
+service discovery and migration. Not only would this provide the client with
+a greater degree of replication transparency, it also could enable servers
+to load balance clients in order to maximize throughput.
