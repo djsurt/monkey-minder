@@ -32,7 +32,7 @@
     \settowidth{\mmdfigureWidthTmp}{\includegraphics{#1}}%
     % give the diagrams a constant scale down regardless of their size. %
     % (based on a rough conversion between their font sizes, assuming i'm correct about those. -amgg) %
-    \setlength{\mmdfigureWidthTmp}{\mmdfigureWidthTmp*10/16}%
+    \setlength{\mmdfigureWidthTmp}{\mmdfigureWidthTmp/100*10/16*100}%
     % scale that down further but only if necissary to not exceed text width %
     % (note that we use columnwidth here, not textwidth, since we're in a 2-column layout) %
     \setlength{\mmdfigureWidthTmp}{\minof{\mmdfigureWidthTmp}{\columnwidth}}%
